@@ -534,6 +534,9 @@ fn resume_match(
     Ok(())
 }
 
+
+// ── Score adjustment commands ────────────────────────────────────────────
+
 #[tauri::command]
 fn get_match_state(match_state: State<'_, MatchState>) -> Result<game::MatchState, String> {
     match_state
