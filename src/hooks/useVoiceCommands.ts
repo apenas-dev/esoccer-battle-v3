@@ -1,16 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
-import { createSTTProvider, type ISTTProvider, type STTProviderName } from '../services/stt';
+import { useEffect, useState } from 'react';
+import { createSTTProvider, type STTProviderName } from '../services/stt';
 
 export interface VoiceCommandState {
   lastText: string;
-  lastUnknownText: string;
   isListening: boolean;
   providerName: string;
 }
 
 const idleState: VoiceCommandState = {
   lastText: '',
-  lastUnknownText: '',
   isListening: false,
   providerName: '',
 };
@@ -20,11 +18,8 @@ export function useVoiceCommands(
   preference?: STTProviderName,
 ): VoiceCommandState {
   const [state, setState] = useState<VoiceCommandState>(idleState);
-  const providerRef = useRef<ISTTProvider | null>(null);
-
   useEffect(() => {
     const provider = createSTTProvider(preference);
-    providerRef.current = provider;
 
     setState((prev) => ({
       ...prev,
@@ -50,7 +45,6 @@ export function useVoiceCommands(
       provider.stop();
       unsubResult();
       unsubError();
-      providerRef.current = null;
     };
   }, [shouldListen, preference]);
 
