@@ -8,7 +8,6 @@ import {
   endMatch as tauriEndMatch,
   goalA as tauriGoalA,
   goalB as tauriGoalB,
-  restart as tauriRestart,
   challenge as tauriChallenge,
   resolveChallenge as tauriResolveChallenge,
   pauseMatch as tauriPauseMatch,
@@ -30,7 +29,13 @@ const INITIAL_STATE: MatchState = {
 
 export function useMatchState() {
   const [matchState, setMatchState] = useState<MatchState>(INITIAL_STATE);
+  const [toast, setToast] = useState<string | null>(null);
   const mountedRef = useRef(true);
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -45,7 +50,6 @@ export function useMatchState() {
       }),
     ];
 
-    // Fetch initial state
     getMatchState()
       .then((s) => {
         if (mountedRef.current) setMatchState(s);
@@ -58,18 +62,17 @@ export function useMatchState() {
     };
   }, []);
 
-  const startMatch = useCallback(() => { tauriStartMatch(); }, []);
-  const endMatch = useCallback(() => { tauriEndMatch(); }, []);
-  const goalA = useCallback(() => { tauriGoalA(); }, []);
-  const goalB = useCallback(() => { tauriGoalB(); }, []);
-  const restart = useCallback(() => { tauriRestart(); }, []);
-  const challenge = useCallback(() => { tauriChallenge(); }, []);
-  const resolveChallenge = useCallback(() => { tauriResolveChallenge(); }, []);
-  const pauseMatch = useCallback(() => { tauriPauseMatch(); }, []);
-  const resumeMatch = useCallback(() => { tauriResumeMatch(); }, []);
-  const undoGoal = useCallback(() => { tauriUndoGoal(); }, []);
-  const setScoreA = useCallback((score: number) => { tauriSetScoreA(score); }, []);
-  const setScoreB = useCallback((score: number) => { tauriSetScoreB(score); }, []);
+  const startMatch = useCallback(() => { tauriStartMatch().catch(e => showToast(String(e))); }, [showToast]);
+  const endMatch = useCallback(() => { tauriEndMatch().catch(e => showToast(String(e))); }, [showToast]);
+  const goalA = useCallback(() => { tauriGoalA().catch(e => showToast(String(e))); }, [showToast]);
+  const goalB = useCallback(() => { tauriGoalB().catch(e => showToast(String(e))); }, [showToast]);
+  const challenge = useCallback(() => { tauriChallenge().catch(e => showToast(String(e))); }, [showToast]);
+  const resolveChallenge = useCallback(() => { tauriResolveChallenge().catch(e => showToast(String(e))); }, [showToast]);
+  const pauseMatch = useCallback(() => { tauriPauseMatch().catch(e => showToast(String(e))); }, [showToast]);
+  const resumeMatch = useCallback(() => { tauriResumeMatch().catch(e => showToast(String(e))); }, [showToast]);
+  const undoGoal = useCallback(() => { tauriUndoGoal().catch(e => showToast(String(e))); }, [showToast]);
+  const setScoreA = useCallback((score: number) => { tauriSetScoreA(score).catch(e => showToast(String(e))); }, [showToast]);
+  const setScoreB = useCallback((score: number) => { tauriSetScoreB(score).catch(e => showToast(String(e))); }, [showToast]);
 
-  return { matchState, startMatch, endMatch, goalA, goalB, restart, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, setScoreA, setScoreB };
+  return { matchState, toast, showToast, startMatch, endMatch, goalA, goalB, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, setScoreA, setScoreB };
 }

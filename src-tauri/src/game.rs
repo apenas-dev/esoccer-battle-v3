@@ -67,11 +67,17 @@ pub fn goal_b(state: &mut MatchState) {
 }
 
 pub fn set_score_a(state: &mut MatchState, score: u32) {
+    if state.status != MatchStatus::Playing && state.status != MatchStatus::Paused {
+        return;
+    }
     state.score_a = score;
     state.last_command = Some(format!("set_score_a:{score}"));
 }
 
 pub fn set_score_b(state: &mut MatchState, score: u32) {
+    if state.status != MatchStatus::Playing && state.status != MatchStatus::Paused {
+        return;
+    }
     state.score_b = score;
     state.last_command = Some(format!("set_score_b:{score}"));
 }
@@ -84,33 +90,28 @@ pub fn undo_goal(state: &mut MatchState) -> Result<(), String> {
         Some("goal_b") => {
             state.score_b = state.score_b.saturating_sub(1);
         }
-        Some(c) if c.starts_with("set_score_a:") => {
-            // If last command was set_score_a, revert by 1
-            state.score_a = state.score_a.saturating_sub(1);
-        }
-        Some(c) if c.starts_with("set_score_b:") => {
-            state.score_b = state.score_b.saturating_sub(1);
-        }
         _ => return Err("No goal to undo".to_string()),
     }
     state.last_command = Some("undo_goal".to_owned());
     Ok(())
 }
 
-pub fn pause_match(state: &mut MatchState) {
+pub fn pause_match(state: &mut MatchState) -> Result<(), String> {
     if state.status != MatchStatus::Playing {
-        return;
+        return Err(format!("Cannot pause: match is {}", state.status_text()));
     }
     state.status = MatchStatus::Paused;
     state.last_command = Some("pause_match".to_owned());
+    Ok(())
 }
 
-pub fn resume_match(state: &mut MatchState) {
+pub fn resume_match(state: &mut MatchState) -> Result<(), String> {
     if state.status != MatchStatus::Paused {
-        return;
+        return Err(format!("Cannot resume: match is {}", state.status_text()));
     }
     state.status = MatchStatus::Playing;
     state.last_command = Some("resume_match".to_owned());
+    Ok(())
 }
 
 pub fn restart(state: &mut MatchState) {
@@ -146,6 +147,18 @@ pub fn end_match(state: &mut MatchState) {
     }
     state.status = MatchStatus::Finished;
     state.last_command = Some("end_match".to_owned());
+}
+
+impl MatchState {
+    pub fn status_text(&self) -> &'static str {
+        match self.status {
+            MatchStatus::Idle => "Idle",
+            MatchStatus::Playing => "Playing",
+            MatchStatus::Paused => "Paused",
+            MatchStatus::Challenge => "Challenge",
+            MatchStatus::Finished => "Finished",
+        }
+    }
 }
 
 pub fn tick(state: &mut MatchState) {

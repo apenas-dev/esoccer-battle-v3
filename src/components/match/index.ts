@@ -7,4 +7,3 @@ export { MatchTimer, type MatchTimerProps, formatTime } from './MatchTimer';
 export { VoiceIndicator, type VoiceIndicatorProps, type VoiceState } from './VoiceIndicator';
 export { CommandLog, type CommandLogProps, type CommandEntry } from './CommandLog';
 export { MatchControls, type MatchControlsProps } from './MatchControls';
-export { tokens, type DesignTokens } from './design-tokens';

@@ -143,8 +143,8 @@ fn execute_command(
             parser::GameCommand::Challenge => game::challenge(&mut guard),
             parser::GameCommand::GoalA => game::goal_a(&mut guard),
             parser::GameCommand::GoalB => game::goal_b(&mut guard),
-            parser::GameCommand::PauseMatch => game::pause_match(&mut guard),
-            parser::GameCommand::ResumeMatch => game::resume_match(&mut guard),
+            parser::GameCommand::PauseMatch => { game::pause_match(&mut guard).ok(); }
+            parser::GameCommand::ResumeMatch => { game::resume_match(&mut guard).ok(); }
             parser::GameCommand::ResolveChallenge => game::resolve_challenge(&mut guard),
         }
         guard.clone()
@@ -491,7 +491,7 @@ fn pause_match(
         let mut state = match_state
             .lock()
             .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::pause_match(&mut state);
+        game::pause_match(&mut state)?;
     }
 
     stop_timer(&timer);
@@ -514,7 +514,7 @@ fn resume_match(
         let mut state = match_state
             .lock()
             .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::resume_match(&mut state);
+        game::resume_match(&mut state)?;
     }
 
     // Stop any existing timer then re-spawn

@@ -1,4 +1,5 @@
 import { cn } from "../../lib/cn";
+import { generateId } from "../../lib/utils";
 import { useCallback, useEffect, useState, type HTMLAttributes } from 'react';
 import { motion } from 'framer-motion';
 import { type MatchStatus } from '../../lib/types';
@@ -8,12 +9,6 @@ import { MatchTimer } from './MatchTimer';
 import { VoiceIndicator, type VoiceState } from './VoiceIndicator';
 import { CommandLog, type CommandEntry } from './CommandLog';
 import { MatchControls } from './MatchControls';
-
-function generateId(): string {
-  return (typeof crypto !== 'undefined' && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
 
 export interface MatchPageProps extends HTMLAttributes<HTMLDivElement> {
   teamAName?: string;

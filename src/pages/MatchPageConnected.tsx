@@ -7,6 +7,7 @@ import { MatchTimer } from '../components/match/MatchTimer';
 import { VoiceIndicator, type VoiceState } from '../components/match/VoiceIndicator';
 import { CommandLog, type CommandEntry } from '../components/match/CommandLog';
 import { MatchControls } from '../components/match/MatchControls';
+import { generateId } from '../lib/utils';
 import { type MatchStatus } from '../lib/types';
 
 function mapStatus(status: string): MatchStatus {
@@ -18,12 +19,6 @@ function mapVoiceState(status: string): VoiceState {
   if (status === 'playing') return 'listening';
   if (status === 'challenge') return 'processing';
   return 'idle';
-}
-
-function generateId(): string {
-  return (typeof crypto !== 'undefined' && crypto.randomUUID)
-    ? crypto.randomUUID()
-    : `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function useCommandLog() {
