@@ -35,9 +35,14 @@ export function ModelDownloader({
     categoryMap.set(cat.type, cat.name);
   }
 
+  // Filtra apenas modelos que podem rodar (memória suficiente).
+  // Se nenhum pode rodar, mostra todos como fallback.
+  const runnable = models.filter((m) => m.can_run);
+  const filteredModels = runnable.length > 0 ? runnable : models;
+
   const grouped = categories.map((cat) => ({
     ...cat,
-    models: models.filter((m) => m.category === cat.type),
+    models: filteredModels.filter((m) => m.category === cat.type),
   }));
 
   return (
@@ -48,9 +53,9 @@ export function ModelDownloader({
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">{group.name}</p>
             <div className="space-y-2">
               {group.models.map((model) => {
-                const isActive = model.name === activeModel;
-                const isDownloading = downloading === model.name;
-                const progress = downloadProgress[model.name] ?? 0;
+                const isActive = model.type === activeModel;
+                const isDownloading = downloading === model.type;
+                const progress = downloadProgress[model.type] ?? 0;
 
                 return (
                   <motion.div
@@ -60,7 +65,7 @@ export function ModelDownloader({
                         ? 'border-[#00ff88]/40 bg-[#00ff88]/5'
                         : 'border-gray-800 bg-[#0a0f1a] hover:border-gray-700'
                     }`}
-                    onClick={() => model.is_downloaded && onSelect(model.name)}
+                    onClick={() => model.is_downloaded && onSelect(model.type)}
                   >
                     {/* Indicador ativo */}
                     <div
@@ -103,7 +108,7 @@ export function ModelDownloader({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDownload(model.name);
+                          onDownload(model.type);
                         }}
                         disabled={isDownloading}
                         className="text-xs px-2.5 py-1 rounded-md bg-[#00ff88]/10 text-[#00ff88]
