@@ -155,7 +155,12 @@ fn execute_command(
         match cmd {
             parser::GameCommand::StartMatch => game::start_match(&mut guard),
             parser::GameCommand::Restart => game::restart(&mut guard),
-            parser::GameCommand::EndMatch => game::end_match(&mut guard),
+            parser::GameCommand::EndMatch => {
+                // Clone state BEFORE ending so we can save the record
+                let pre_end = guard.clone();
+                game::end_match(&mut guard);
+                save_match_record(&pre_end);
+            }
             parser::GameCommand::Challenge => game::challenge(&mut guard),
             parser::GameCommand::GoalA => game::goal_a(&mut guard),
             parser::GameCommand::GoalB => game::goal_b(&mut guard),
@@ -292,6 +297,22 @@ fn start_match(
 }
 
 #[tauri::command]
+fn save_match_record(state: &game::MatchState) {
+    let record = match_history::MatchRecord {
+        id: uuid::Uuid::new_v4().to_string(),
+        team_a_name: state.team_a_name.clone(),
+        team_b_name: state.team_b_name.clone(),
+        score_a: state.score_a,
+        score_b: state.score_b,
+        duration_secs: state.elapsed_seconds as u32,
+        finished_at: chrono::Utc::now().to_rfc3339(),
+    };
+    if let Err(e) = match_history::save_match(&record) {
+        tracing::warn!("[match_history] Failed to save: {e}");
+    }
+}
+
+#[tauri::command]
 fn end_match(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
@@ -317,20 +338,7 @@ fn end_match(
         .clone();
 
     // Save match record to history
-    {
-        let record = match_history::MatchRecord {
-            id: uuid::Uuid::new_v4().to_string(),
-            team_a_name: state.team_a_name.clone(),
-            team_b_name: state.team_b_name.clone(),
-            score_a: state.score_a,
-            score_b: state.score_b,
-            duration_secs: state.elapsed_seconds as u32,
-            finished_at: chrono::Utc::now().to_rfc3339(),
-        };
-        if let Err(e) = match_history::save_match(&record) {
-            tracing::warn!("Failed to save match history: {e}");
-        }
-    }
+    save_match_record(&state);
 
     emit_state(&app, &state);
     Ok(())

@@ -29,7 +29,7 @@ export function HistoryPage({ onBack }: HistoryPageProps) {
     setLoading(true);
     try {
       const history = await getMatchHistory();
-      setRecords(history.reverse());
+      setRecords([...history].reverse());
     } catch (e) {
       console.error('Failed to load history:', e);
     }
