@@ -7,7 +7,7 @@ import { MatchTimer } from '../components/match/MatchTimer';
 import { VoiceIndicator, type VoiceState } from '../components/match/VoiceIndicator';
 import { CommandLog, type CommandEntry } from '../components/match/CommandLog';
 import { MatchControls } from '../components/match/MatchControls';
-import { startRecording, stopRecordingAndTranscribe, onRecordingState, type RecordingStatePayload, getSettings, setSettings } from '../lib/tauri';
+import { startRecording, stopRecordingAndTranscribe, onRecordingState, type RecordingStatePayload, getSettings, setSettings, processVoiceText } from '../lib/tauri';
 import { generateId } from '../lib/utils';
 import { type MatchStatus } from '../lib/types';
 
@@ -71,9 +71,7 @@ export function MatchPageConnected({ onNavigateSettings, onNavigateHelp, onNavig
         const text = await voice.stopListening();
         if (text) {
           addCommand(setCommands, `🎤 "${text}"`, 'voice');
-          // Send text to Tauri backend for command processing
-          const { invoke } = await import('@tauri-apps/api/core').catch(() => ({ invoke: () => Promise.resolve() }));
-          try { await invoke('process_voice_text', { text }); } catch { /* ignore if not available */ }
+          processVoiceText(text).catch((e) => console.error('processVoiceText failed:', e));
         }
         setPttState('idle');
       } else {

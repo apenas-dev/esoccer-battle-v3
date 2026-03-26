@@ -78,11 +78,28 @@ export function useVoiceCommands(
 
       resolveRef.current = resolve;
 
-      // Clean up subscriptions
+      // Set a timeout so the promise doesn't hang forever if no final result arrives
+      const timeout = setTimeout(() => {
+        if (resolveRef.current) {
+          resolveRef.current('');
+          resolveRef.current = null;
+        }
+      }, 2000);
+
+      // Wrap resolve to also clear the timeout
+      const originalResolve = resolve;
+      resolveRef.current = (text: string) => {
+        clearTimeout(timeout);
+        originalResolve(text);
+      };
+
+      // Stop the provider — callbacks stay alive so final results can resolve the promise
+      provider.stop();
+
+      // Clean up subscriptions after stopping
       const extended = provider as unknown as { _unsubs?: Array<() => void> };
       extended._unsubs?.forEach((fn) => fn());
 
-      provider.stop();
       setState((prev) => ({ ...prev, isListening: false }));
     });
   }, []);

@@ -202,6 +202,12 @@ export function onModelDownloadProgress(cb: (payload: { percent: number }) => vo
   return listen<{ percent: number }>('model_download_progress', (e) => cb(e.payload));
 }
 
+// ── Voice text processing ────────────────────────────
+
+export async function processVoiceText(text: string): Promise<void> {
+  return invoke('process_voice_text', { text });
+}
+
 // ── Match history ────────────────────────────────────
 
 export async function getMatchHistory(): Promise<MatchRecord[]> {
