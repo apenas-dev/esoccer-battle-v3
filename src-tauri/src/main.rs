@@ -1087,45 +1087,6 @@ fn list_model_categories() -> Vec<serde_json::Value> {
         .collect()
 }
 
-// ── Voice → Game integration (event listener) ────────────────────────────
-
-fn setup_voice_to_game(app: &tauri::AppHandle) {
-    let app_handle = app.clone();
-    tracing::info!("[voice-setup] Event listener registered for voice_text");
-    let _listener_id = app.listen("voice_text", move |event: tauri::Event| {
-        let text = event.payload();
-
-        // Parse JSON payload: {"text": "..."}
-        let trimmed = match serde_json::from_str::<serde_json::Value>(text) {
-            Ok(v) => v["text"].as_str().unwrap_or("").trim().to_string(),
-            Err(_) => text.trim().to_string(),
-        };
-        if trimmed.is_empty() {
-            return;
-        }
-
-        tracing::info!("[voice→game] Received: \"{trimmed}\"");
-
-        // Parse command
-        match parser::parse_command(&trimmed) {
-            Some(cmd) => {
-                tracing::info!("[voice→game] Parsed command: {cmd:?}");
-                let match_state: MatchState = app_handle.state::<MatchState>().inner().clone();
-                let pipeline_state = app_handle.state::<VoicePipelineState>().inner();
-                let timer_state = app_handle.state::<TimerHandle>().inner();
-                let settings_state = app_handle.state::<Settings>().inner();
-                execute_command(&app_handle, &match_state, pipeline_state, timer_state, settings_state, cmd);
-            }
-            None => {
-                tracing::info!("[voice→game] Unknown command: \"{trimmed}\"");
-                if let Err(e) = app_handle.emit("command_unknown", serde_json::json!({ "text": trimmed })) {
-                    tracing::warn!("Failed to emit command_unknown: {e}");
-                }
-            }
-        }
-    });
-}
-
 // ── Main ─────────────────────────────────────────────────────────────────
 
 fn main() {
@@ -1144,8 +1105,7 @@ fn main() {
         .manage(Mutex::new(None::<VoicePipelineHandle>))
         .manage(Mutex::new(None::<TimerGuard>))
         .manage(Arc::new(Mutex::new(None::<capture::AudioStream>)))
-        .setup(|app| {
-            setup_voice_to_game(&app.handle().clone());
+        .setup(|_app| {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
