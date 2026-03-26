@@ -86,7 +86,7 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
         .name()
         .unwrap_or_else(|_| "<unnamed>".to_string());
 
-    log::info!("Capturing from: {device_label}");
+    eprintln!("[capture] Capturing from: {device_label}");
 
     let supported = device
         .supported_input_configs()
@@ -107,49 +107,51 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
     let shutdown = Arc::new(AtomicBool::new(false));
 
     let buf_clone = buffer.clone();
-    let shutdown_clone = shutdown.clone();
+    let shutdown_for_cb = shutdown.clone();
+    let shutdown_for_thread = shutdown.clone();
+    let device_label_clone = device_label.clone();
 
-    let stream = device
-        .build_input_stream(
-            &config,
-            move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                if shutdown_clone.load(Ordering::Relaxed) {
-                    return;
-                }
-                // Mix channels down to mono and resample.
-                let mono: Vec<f32> = data
-                    .chunks_exact(channels as usize)
-                    .map(|frame| frame.iter().sum::<f32>() / channels)
-                    .collect();
-
-                let resampled = resample(&mono, source_rate, TARGET_SAMPLE_RATE);
-
-                let mut buf = buf_clone.lock().unwrap_or_else(|e| e.into_inner());
-                for s in resampled {
-                    if buf.len() >= BUFFER_CAPACITY {
-                        buf.pop_front();
-                    }
-                    buf.push_back(s);
-                }
-            },
-            |err| {
-                log::error!("Input stream error: {err}");
-            },
-            None,
-        )
-        .map_err(|e| format!("Failed to build input stream: {e}"))?;
-
-    stream
-        .play()
-        .map_err(|e| format!("Failed to start input stream: {e}"))?;
-
-    // Keep the stream alive in a dedicated thread so it isn't dropped.
-    let shutdown_thread = shutdown.clone();
+    // Stream must be created and held inside the thread (cpal::Stream is !Send).
     let handle = thread::Builder::new()
         .name("audio-capture".into())
-        .spawn(move || {
-            // Spin until shutdown; the stream lives on this stack frame.
-            while !shutdown_thread.load(Ordering::Relaxed) {
+        .spawn(move || -> Result<(), String> {
+            let shutdown_for_cb = shutdown_for_cb;
+            let stream = device
+                .build_input_stream(
+                    &config,
+                    move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                        if shutdown_for_cb.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        // Mix channels down to mono and resample.
+                        let mono: Vec<f32> = data
+                            .chunks_exact(channels as usize)
+                            .map(|frame| frame.iter().sum::<f32>() / channels)
+                            .collect();
+
+                        let resampled = resample(&mono, source_rate, TARGET_SAMPLE_RATE);
+
+                        let mut buf = buf_clone.lock().unwrap_or_else(|e| e.into_inner());
+                        for s in resampled {
+                            if buf.len() >= BUFFER_CAPACITY {
+                                buf.pop_front();
+                            }
+                            buf.push_back(s);
+                        }
+                    },
+                    move |err| {
+                        eprintln!("[capture] Input stream error on {device_label_clone}: {err}");
+                    },
+                    None,
+                )
+                .map_err(|e| format!("Failed to build input stream: {e}"))?;
+
+            stream
+                .play()
+                .map_err(|e| format!("Failed to start input stream: {e}"))?;
+
+            // Keep stream alive until shutdown.
+            while !shutdown_for_thread.load(Ordering::Relaxed) {
                 thread::sleep(std::time::Duration::from_millis(100));
             }
             drop(stream);
