@@ -5,11 +5,9 @@ import {
   setSettings,
   listMicrophone,
   listModels,
-  listModelCategories,
   downloadModel,
   type AppSettings,
   type WhisperModel,
-  type ModelCategory,
 } from '../lib/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { MicSelector } from '../components/settings/MicSelector';
@@ -52,7 +50,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   // Dados externos
   const [microphones, setMicrophones] = useState<string[]>([]);
   const [models, setModels] = useState<WhisperModel[]>([]);
-  const [categories, setCategories] = useState<ModelCategory[]>([]);
+
 
   // Download state
   const [downloading, setDownloading] = useState<string | null>(null);
@@ -71,16 +69,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   useEffect(() => {
     (async () => {
       try {
-        const [s, mics, mdls, cats] = await Promise.all([
+        const [s, mics, mdls] = await Promise.all([
           getSettings(),
           listMicrophone(),
           listModels(),
-          listModelCategories(),
         ]);
         setLocalSettings(s);
         setMicrophones(mics.map((d) => d.name));
         setModels(mdls);
-        setCategories(cats);
       } catch (err) {
         showToast('Erro ao carregar configurações', 'error');
         console.error(err);
@@ -207,7 +203,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         />
 
         <ModelDownloader
-          categories={categories}
           models={models}
           activeModel={settings.model}
           downloading={downloading}

@@ -90,11 +90,11 @@ impl Model {
     pub fn from_str_friendly(s: &str) -> Option<Self> {
         let lower = s.to_lowercase();
         let model = match lower.as_str() {
-            "tiny" => Self::TinyWhisper,
+            "tiny" | "tinywhisper" => Self::TinyWhisper,
             "tinyenwhisper" | "tiny_en" | "tiny-en" | "tinywhisperen" => Self::TinyEnWhisper,
             "tinyquantized" | "tiny_quantized" | "tiny-q" => Self::TinyQuantized,
             "tinyenquantized" | "tiny_en_quantized" | "tiny-en-q" => Self::TinyEnQuantized,
-            "base" => Self::BaseWhisper,
+            "base" | "basewhisper" => Self::BaseWhisper,
             "baseenwhisper" | "base_en" | "base-en" | "basewhisperen" => Self::BaseEnWhisper,
             "basequantized" | "base_quantized" | "base-q" => Self::BaseQuantized,
             "baseenquantized" | "base_en_quantized" | "base-en-q" => Self::BaseEnQuantized,

@@ -735,9 +735,12 @@ fn start_recording(
 
     // Verify model is downloaded
     let model = transcriber::Model::from_str_friendly(&model_str)
-        .ok_or_else(|| format!("Unknown model '{model_str}'"))?;
+        .unwrap_or_else(|| {
+            tracing::warn!("[ptt] Unknown model '{model_str}', falling back to TinyWhisper");
+            transcriber::Model::TinyWhisper
+        });
     if !model.is_downloaded() {
-        return Err(format!("Model '{}' is not downloaded", model_str));
+        return Err(format!("Model '{}' is not downloaded", model.name()));
     }
 
     // Stop any previous recording
@@ -791,7 +794,10 @@ fn stop_recording_and_transcribe(
     };
 
     let model = transcriber::Model::from_str_friendly(&model_str)
-        .ok_or_else(|| format!("Unknown model '{model_str}'"))?;
+        .unwrap_or_else(|| {
+            tracing::warn!("[ptt] Unknown model '{model_str}', falling back to TinyWhisper");
+            transcriber::Model::TinyWhisper
+        });
 
     // Take the stream out (stops capture)
     let stream = {
