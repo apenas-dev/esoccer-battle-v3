@@ -21,7 +21,8 @@ function formatSize(bytes: number): string {
 }
 
 export function ModelDownloader({
-  categories,
+  // categories still accepted for API compat but no longer used
+  categories: _categories,
   models,
   activeModel,
   downloading,
