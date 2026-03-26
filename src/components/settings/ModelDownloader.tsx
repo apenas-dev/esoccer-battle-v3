@@ -27,7 +27,7 @@ export function ModelDownloader({
   onSelect,
   onDownload,
 }: ModelDownloaderProps) {
-  // Mostrar APENAS SmallWhisper
+  // Mostrar APENAS MediumWhisper
   const filteredModels = models.filter((m) => m.type === 'MediumWhisper');
 
   return (
