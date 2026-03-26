@@ -243,22 +243,17 @@ impl VoicePipeline {
     pub fn stop(mut self) -> Result<(), String> {
         self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.thread_handle.take() {
-            // Timeout join to prevent deadlock
-            let result = thread::scope(|s| {
-                s.spawn(|| handle.join()).join()
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = handle.join();
+                let _ = tx.send(());
             });
-            match result {
-                Ok(Ok(Ok(()))) => Ok(()),
-                Ok(Ok(Err(e))) => Err(e),
-                Ok(Err(_)) => Err("Transcription thread panicked".to_string()),
-                Err(_) => {
-                    tracing::warn!("[transcriber] Thread join timed out — detached");
-                    Ok(())
-                }
+            match rx.recv_timeout(std::time::Duration::from_secs(3)) {
+                Ok(()) => {}
+                Err(_) => tracing::warn!("[transcriber] Thread join timed out — detached"),
             }
-        } else {
-            Ok(())
         }
+        Ok(())
     }
 }
 
@@ -342,13 +337,8 @@ fn build_params(language: &'static str) -> FullParams<'static, 'static> {
 
 /// Extract recognised text from the first segment.
 fn extract_text(state: &whisper_rs::WhisperState) -> Result<String, String> {
-    let n_segments = state
-        .full_n_segments()
-        .map_err(|e| format!("Failed to get segment count: {e}"))?;
-    if n_segments == 0 {
-        return Ok(String::new());
+    match state.get_segment(0) {
+        Some(seg) => Ok(seg.to_str().unwrap_or_default().to_string()),
+        None => Ok(String::new()),
     }
-    state
-        .full_get_segment_text(0)
-        .map_err(|e| format!("Failed to get segment text: {e}"))
 }

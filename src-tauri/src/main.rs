@@ -145,6 +145,7 @@ fn execute_command(
             parser::GameCommand::GoalB => game::goal_b(&mut guard),
             parser::GameCommand::PauseMatch => game::pause_match(&mut guard),
             parser::GameCommand::ResumeMatch => game::resume_match(&mut guard),
+            parser::GameCommand::ResolveChallenge => game::resolve_challenge(&mut guard),
         }
         guard.clone()
     };
@@ -166,7 +167,7 @@ fn execute_command(
         parser::GameCommand::Challenge => {
             audio::play_sound(audio::GameSound::Challenge);
         }
-        parser::GameCommand::PauseMatch | parser::GameCommand::ResumeMatch => {
+        parser::GameCommand::PauseMatch | parser::GameCommand::ResumeMatch | parser::GameCommand::ResolveChallenge => {
             // no specific sound
         }
     }

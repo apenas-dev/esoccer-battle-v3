@@ -138,7 +138,10 @@ pub fn resolve_challenge(state: &mut MatchState) {
 }
 
 pub fn end_match(state: &mut MatchState) {
-    if state.status == MatchStatus::Finished {
+    if state.status != MatchStatus::Playing
+        && state.status != MatchStatus::Paused
+        && state.status != MatchStatus::Challenge
+    {
         return;
     }
     state.status = MatchStatus::Finished;
