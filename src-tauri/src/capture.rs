@@ -99,7 +99,6 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
             )
         })?;
 
-    let source_rate = supported.min_sample_rate().0;
     let channels = supported.channels() as f32;
 
     let config: cpal::StreamConfig = supported.with_sample_rate(cpal::SampleRate(TARGET_SAMPLE_RATE)).into();
@@ -130,7 +129,7 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
                             .map(|frame| frame.iter().sum::<f32>() / channels)
                             .collect();
 
-                        let resampled = resample(&mono, source_rate, TARGET_SAMPLE_RATE);
+                        let resampled = resample(&mono, TARGET_SAMPLE_RATE, TARGET_SAMPLE_RATE);
 
                         let mut buf = match buf_clone.lock() {
                             Ok(b) => b,
