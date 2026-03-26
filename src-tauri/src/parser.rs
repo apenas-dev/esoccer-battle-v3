@@ -11,6 +11,8 @@ pub enum GameCommand {
     Challenge,
     GoalA,
     GoalB,
+    PauseMatch,
+    ResumeMatch,
 }
 
 struct AliasEntry {
@@ -25,6 +27,8 @@ static ALIAS_TABLE: LazyLock<Vec<AliasEntry>> = LazyLock::new(|| {
         ("Restart", &["volta seis", "6", "volta", "seis metros", "volta 6"]),
         ("EndMatch", &["encerrar", "fim", "parar", "stop", "acabar"]),
         ("Challenge", &["dúvida", "duvida", "contestar", "protestar"]),
+        ("PauseMatch", &["pausar", "pause", "pausa"]),
+        ("ResumeMatch", &["retomar", "continuar", "começar", "comecar", "voltar"]),
         // "gol" alone is ambiguous — require explicit team discriminator.
         ("GoalA", &["gol do time a", "gol time a", "ponto a", "gol pra mim"]),
         ("GoalB", &["gol do time b", "gol time b", "ponto b", "gol pra eles"]),
@@ -39,6 +43,8 @@ static ALIAS_TABLE: LazyLock<Vec<AliasEntry>> = LazyLock::new(|| {
             "Challenge" => GameCommand::Challenge,
             "GoalA" => GameCommand::GoalA,
             "GoalB" => GameCommand::GoalB,
+            "PauseMatch" => GameCommand::PauseMatch,
+            "ResumeMatch" => GameCommand::ResumeMatch,
             _ => continue,
         };
         for &alias in aliases {

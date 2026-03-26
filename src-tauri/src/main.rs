@@ -143,6 +143,8 @@ fn execute_command(
             parser::GameCommand::Challenge => game::challenge(&mut guard),
             parser::GameCommand::GoalA => game::goal_a(&mut guard),
             parser::GameCommand::GoalB => game::goal_b(&mut guard),
+            parser::GameCommand::PauseMatch => game::pause_match(&mut guard),
+            parser::GameCommand::ResumeMatch => game::resume_match(&mut guard),
         }
         guard.clone()
     };
@@ -163,6 +165,9 @@ fn execute_command(
         }
         parser::GameCommand::Challenge => {
             audio::play_sound(audio::GameSound::Challenge);
+        }
+        parser::GameCommand::PauseMatch | parser::GameCommand::ResumeMatch => {
+            // no specific sound
         }
     }
 
@@ -400,6 +405,119 @@ fn resolve_challenge(
     stop_timer(&timer);
 
     // Re-spawn timer since we're back to Playing
+    let guard = spawn_timer(app.clone(), match_state.inner().clone());
+    {
+        let mut t = timer
+            .lock()
+            .map_err(|e| format!("Timer lock poisoned: {e}"))?;
+        *t = Some(guard);
+    }
+
+    let state = match_state
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?
+        .clone();
+    emit_state(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_score_a(
+    app: tauri::AppHandle,
+    match_state: State<'_, MatchState>,
+    score: u32,
+) -> Result<(), String> {
+    {
+        let mut state = match_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        game::set_score_a(&mut state, score);
+    }
+    let state = match_state
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?
+        .clone();
+    emit_state(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+fn set_score_b(
+    app: tauri::AppHandle,
+    match_state: State<'_, MatchState>,
+    score: u32,
+) -> Result<(), String> {
+    {
+        let mut state = match_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        game::set_score_b(&mut state, score);
+    }
+    let state = match_state
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?
+        .clone();
+    emit_state(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+fn undo_goal(
+    app: tauri::AppHandle,
+    match_state: State<'_, MatchState>,
+) -> Result<(), String> {
+    {
+        let mut state = match_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        game::undo_goal(&mut state)?;
+    }
+    let state = match_state
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?
+        .clone();
+    emit_state(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+fn pause_match(
+    app: tauri::AppHandle,
+    match_state: State<'_, MatchState>,
+    timer: State<'_, TimerHandle>,
+) -> Result<(), String> {
+    {
+        let mut state = match_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        game::pause_match(&mut state);
+    }
+
+    stop_timer(&timer);
+
+    let state = match_state
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?
+        .clone();
+    emit_state(&app, &state);
+    Ok(())
+}
+
+#[tauri::command]
+fn resume_match(
+    app: tauri::AppHandle,
+    match_state: State<'_, MatchState>,
+    timer: State<'_, TimerHandle>,
+) -> Result<(), String> {
+    {
+        let mut state = match_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        game::resume_match(&mut state);
+    }
+
+    // Stop any existing timer then re-spawn
+    stop_timer(&timer);
     let guard = spawn_timer(app.clone(), match_state.inner().clone());
     {
         let mut t = timer
@@ -699,9 +817,14 @@ fn main() {
             end_match,
             goal_a,
             goal_b,
+            set_score_a,
+            set_score_b,
+            undo_goal,
             restart,
             challenge,
             resolve_challenge,
+            pause_match,
+            resume_match,
             get_match_state,
             start_listening,
             stop_listening,
