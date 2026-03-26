@@ -36,7 +36,7 @@ function addCommand(setter: React.Dispatch<React.SetStateAction<CommandEntry[]>>
 }
 
 export function MatchPageConnected() {
-  const { matchState, startMatch, endMatch, goalA, goalB, restart, challenge, resolveChallenge } = useMatchState();
+  const { matchState, startMatch, endMatch, goalA, goalB, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, setScoreA, setScoreB } = useMatchState();
   const voice = useVoiceCommands(matchState.status === 'playing');
 
   const uiStatus = mapStatus(matchState.status);
@@ -48,7 +48,11 @@ export function MatchPageConnected() {
   const handleEnd = useCallback(() => { endMatch(); addCommand(setCommands, 'Partida encerrada'); }, [endMatch, setCommands]);
   const handleGoalA = useCallback(() => { goalA(); addCommand(setCommands, `⚽ Gol do ${matchState.team_a_name}`, 'goal'); }, [goalA, matchState.team_a_name, setCommands]);
   const handleGoalB = useCallback(() => { goalB(); addCommand(setCommands, `⚽ Gol do ${matchState.team_b_name}`, 'goal'); }, [goalB, matchState.team_b_name, setCommands]);
-  const handleRestart = useCallback(() => { restart(); addCommand(setCommands, '↩ Volta seis'); }, [restart, setCommands]);
+  const handlePause = useCallback(() => { pauseMatch(); addCommand(setCommands, '⏸ Partida pausada'); }, [pauseMatch, setCommands]);
+  const handleResume = useCallback(() => { resumeMatch(); addCommand(setCommands, '▶ Partida retomada'); }, [resumeMatch, setCommands]);
+  const handleUndo = useCallback(() => { undoGoal(); addCommand(setCommands, '↩ Desfeito último gol'); }, [undoGoal, setCommands]);
+  const handleScoreAChange = useCallback((newScore: number) => { setScoreA(newScore); }, [setScoreA]);
+  const handleScoreBChange = useCallback((newScore: number) => { setScoreB(newScore); }, [setScoreB]);
   const handleChallenge = useCallback(() => { challenge(); addCommand(setCommands, '❓ Dúvida', 'challenge'); }, [challenge, setCommands]);
   const handleResolveChallenge = useCallback(() => { resolveChallenge(); addCommand(setCommands, '✅ Dúvida resolvida', 'challenge'); }, [resolveChallenge, setCommands]);
 
@@ -69,6 +73,8 @@ export function MatchPageConnected() {
             scoreA={matchState.score_a}
             scoreB={matchState.score_b}
             status={uiStatus}
+            onScoreAChange={handleScoreAChange}
+            onScoreBChange={handleScoreBChange}
           />
         </section>
         <section aria-label="Cronômetro">
@@ -89,8 +95,10 @@ export function MatchPageConnected() {
           <MatchControls
             status={uiStatus}
             onStart={handleStart}
+            onPause={handlePause}
+            onResume={handleResume}
             onEnd={handleEnd}
-            onUndo={handleRestart}
+            onUndo={handleUndo}
             onChallenge={handleChallenge}
             onResolveChallenge={handleResolveChallenge}
             onGoalA={handleGoalA}

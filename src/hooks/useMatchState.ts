@@ -11,6 +11,11 @@ import {
   restart as tauriRestart,
   challenge as tauriChallenge,
   resolveChallenge as tauriResolveChallenge,
+  pauseMatch as tauriPauseMatch,
+  resumeMatch as tauriResumeMatch,
+  undoGoal as tauriUndoGoal,
+  setScoreA as tauriSetScoreA,
+  setScoreB as tauriSetScoreB,
 } from '../lib/tauri';
 
 const INITIAL_STATE: MatchState = {
@@ -60,6 +65,11 @@ export function useMatchState() {
   const restart = useCallback(() => { tauriRestart(); }, []);
   const challenge = useCallback(() => { tauriChallenge(); }, []);
   const resolveChallenge = useCallback(() => { tauriResolveChallenge(); }, []);
+  const pauseMatch = useCallback(() => { tauriPauseMatch(); }, []);
+  const resumeMatch = useCallback(() => { tauriResumeMatch(); }, []);
+  const undoGoal = useCallback(() => { tauriUndoGoal(); }, []);
+  const setScoreA = useCallback((score: number) => { tauriSetScoreA(score); }, []);
+  const setScoreB = useCallback((score: number) => { tauriSetScoreB(score); }, []);
 
-  return { matchState, startMatch, endMatch, goalA, goalB, restart, challenge, resolveChallenge };
+  return { matchState, startMatch, endMatch, goalA, goalB, restart, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, setScoreA, setScoreB };
 }

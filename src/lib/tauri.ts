@@ -10,7 +10,7 @@ export function isTauri(): boolean {
 // ── Types ─────────────────────────────────────────────
 
 export interface MatchState {
-  status: 'idle' | 'playing' | 'challenge' | 'finished';
+  status: 'idle' | 'playing' | 'paused' | 'challenge' | 'finished';
   score_a: number;
   score_b: number;
   elapsed_seconds: number;
@@ -62,6 +62,26 @@ export async function goalA(): Promise<void> {
 
 export async function goalB(): Promise<void> {
   return invoke('goal_b');
+}
+
+export async function pauseMatch(): Promise<void> {
+  return invoke('pause_match');
+}
+
+export async function resumeMatch(): Promise<void> {
+  return invoke('resume_match');
+}
+
+export async function undoGoal(): Promise<void> {
+  return invoke('undo_goal');
+}
+
+export async function setScoreA(score: number): Promise<void> {
+  return invoke('set_score_a', { score });
+}
+
+export async function setScoreB(score: number): Promise<void> {
+  return invoke('set_score_b', { score });
 }
 
 export async function restart(): Promise<void> {
