@@ -13,6 +13,12 @@ const SettingsPage = lazy(() =>
     : Promise.resolve({ default: () => <></> })
 );
 
+const HelpPage = lazy(() =>
+  isTauri()
+    ? import('./pages/HelpPage').then((m) => ({ default: m.HelpPage }))
+    : Promise.resolve({ default: () => <></> })
+);
+
 function Fallback() {
   return (
     <div className="min-h-screen bg-[#0a0f1a] text-white flex items-center justify-center">
@@ -21,7 +27,7 @@ function Fallback() {
   );
 }
 
-type Page = 'match' | 'settings';
+type Page = 'match' | 'settings' | 'help';
 
 export function App() {
   const [page, setPage] = useState<Page>('match');
@@ -39,7 +45,12 @@ export function App() {
   return (
     <Suspense fallback={<Fallback />}>
       {page === 'match' ? (
-        <MatchPageConnected onNavigateSettings={() => setPage('settings')} />
+        <MatchPageConnected
+          onNavigateSettings={() => setPage('settings')}
+          onNavigateHelp={() => setPage('help')}
+        />
+      ) : page === 'help' ? (
+        <HelpPage onBack={() => setPage('match')} />
       ) : (
         <SettingsPage onBack={() => setPage('match')} />
       )}

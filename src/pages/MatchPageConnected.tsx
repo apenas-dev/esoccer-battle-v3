@@ -27,9 +27,10 @@ function addCommand(setter: React.Dispatch<React.SetStateAction<CommandEntry[]>>
 
 interface MatchPageConnectedProps {
   onNavigateSettings?: () => void;
+  onNavigateHelp?: () => void;
 }
 
-export function MatchPageConnected({ onNavigateSettings }: MatchPageConnectedProps) {
+export function MatchPageConnected({ onNavigateSettings, onNavigateHelp }: MatchPageConnectedProps) {
   const { matchState, startMatch, endMatch, goalA, goalB, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, restart, setScoreA, setScoreB } = useMatchState();
   const voice = useVoiceCommands(matchState.status === 'playing');
 
@@ -90,6 +91,15 @@ export function MatchPageConnected({ onNavigateSettings }: MatchPageConnectedPro
           <span className="text-[#00ff88]">E-Soccer</span>{' '}
           <span className="text-gray-400">Battle</span>
         </h1>
+        {onNavigateHelp && (
+          <button
+            onClick={onNavigateHelp}
+            className="text-gray-500 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-gray-800"
+            aria-label="Ajuda"
+          >
+            ❓
+          </button>
+        )}
         {onNavigateSettings && (
           <button
             onClick={onNavigateSettings}

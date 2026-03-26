@@ -11,6 +11,8 @@ export interface ScoreboardProps extends HTMLAttributes<HTMLDivElement> {
   scoreA: number;
   scoreB: number;
   status: MatchStatus;
+  canEditNames?: boolean;
+  onTeamNameChange?: (team: 'a' | 'b', value: string) => void;
   onScoreAChange?: (newScore: number) => void;
   onScoreBChange?: (newScore: number) => void;
 }
@@ -111,7 +113,39 @@ function WinnerBanner({ scoreA, scoreB, teamAName, teamBName }: { scoreA: number
   );
 }
 
-export const Scoreboard = memo(function Scoreboard({ teamAName, teamBName, scoreA, scoreB, status, onScoreAChange, onScoreBChange, className, ...props }: ScoreboardProps) {
+function TeamNameInput({ value, color, canEdit, onChange }: {
+  value: string; color: 'cyan' | 'red'; canEdit: boolean;
+  onChange?: (value: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [local, setLocal] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const accent = color === 'cyan' ? 'text-cyan-400' : 'text-red-400';
+
+  useEffect(() => {
+    if (editing) { inputRef.current?.select(); }
+  }, [editing]);
+
+  if (!canEdit) {
+    return <h2 className={`text-xl sm:text-2xl font-bold ${accent} truncate max-w-[160px]`} title={value}>{value}</h2>;
+  }
+
+  return (
+    <input
+      ref={inputRef}
+      value={editing ? local : value}
+      onChange={(e) => setLocal(e.target.value)}
+      onBlur={() => { if (local.trim() && local !== value) onChange?.(local.trim()); setEditing(false); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); } if (e.key === 'Escape') { setLocal(value); setEditing(false); } }}
+      onFocus={() => { setLocal(value); setEditing(true); }}
+      className={`text-xl sm:text-2xl font-bold bg-transparent ${accent} text-center outline-none cursor-text border-b border-transparent focus:border-gray-600 max-w-[160px] truncate transition-colors`}
+      title={value}
+      aria-label={`Nome do time: ${value}`}
+    />
+  );
+}
+
+export const Scoreboard = memo(function Scoreboard({ teamAName, teamBName, scoreA, scoreB, status, canEditNames, onTeamNameChange, onScoreAChange, onScoreBChange, className, ...props }: ScoreboardProps) {
   const [confettiTeam, setConfettiTeam] = useState<'A' | 'B' | null>(null);
   const prevA = useRef(scoreA);
   const prevB = useRef(scoreB);
@@ -142,12 +176,12 @@ export const Scoreboard = memo(function Scoreboard({ teamAName, teamBName, score
         <div className="flex justify-center mb-4"><StatusBadge status={status} /></div>
         <div className="flex items-center justify-center gap-4 sm:gap-8 lg:gap-16">
           <div className="flex flex-col items-center gap-2 flex-1 min-w-0">
-            <h2 className="text-xl sm:text-2xl font-bold text-cyan-400 truncate max-w-[160px]" title={teamAName}>{teamAName}</h2>
+            <TeamNameInput value={teamAName} color="cyan" canEdit={!!canEditNames} onChange={(v) => onTeamNameChange?.('a', v)} />
             <ScoreCell score={scoreA} team="A" isEditing={isEditable} onIncrement={incA} onDecrement={decA} />
           </div>
           <span className="text-3xl sm:text-4xl font-black text-gray-600 select-none" aria-hidden="true">×</span>
           <div className="flex flex-col items-center gap-2 flex-1 min-w-0">
-            <h2 className="text-xl sm:text-2xl font-bold text-red-400 truncate max-w-[160px]" title={teamBName}>{teamBName}</h2>
+            <TeamNameInput value={teamBName} color="red" canEdit={!!canEditNames} onChange={(v) => onTeamNameChange?.('b', v)} />
             <ScoreCell score={scoreB} team="B" isEditing={isEditable} onIncrement={incB} onDecrement={decB} />
           </div>
         </div>

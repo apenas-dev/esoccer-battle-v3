@@ -66,6 +66,16 @@ export interface RecordingStatePayload {
   status: 'idle' | 'recording' | 'processing';
 }
 
+export interface MatchRecord {
+  id: string;
+  team_a_name: string;
+  team_b_name: string;
+  score_a: number;
+  score_b: number;
+  duration_secs: number;
+  finished_at: string;
+}
+
 // ── Commands ──────────────────────────────────────────
 
 export async function startMatch(): Promise<void> {
@@ -190,4 +200,14 @@ export function onRecordingState(cb: (payload: RecordingStatePayload) => void): 
 
 export function onModelDownloadProgress(cb: (payload: { percent: number }) => void): Promise<UnlistenFn> {
   return listen<{ percent: number }>('model_download_progress', (e) => cb(e.payload));
+}
+
+// ── Match history ────────────────────────────────────
+
+export async function getMatchHistory(): Promise<MatchRecord[]> {
+  return invoke('get_match_history');
+}
+
+export async function clearMatchHistory(): Promise<void> {
+  return invoke('clear_match_history');
 }

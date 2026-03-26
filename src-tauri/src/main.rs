@@ -14,6 +14,7 @@ mod capture;
 mod configuration;
 mod game;
 mod parser;
+mod match_history;
 mod on_demand_transcriber;
 mod transcriber;
 
@@ -314,6 +315,23 @@ fn end_match(
         .lock()
         .map_err(|e| format!("Lock poisoned: {e}"))?
         .clone();
+
+    // Save match record to history
+    {
+        let record = match_history::MatchRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            team_a_name: state.team_a_name.clone(),
+            team_b_name: state.team_b_name.clone(),
+            score_a: state.score_a,
+            score_b: state.score_b,
+            duration_secs: state.elapsed_seconds as u32,
+            finished_at: chrono::Utc::now().to_rfc3339(),
+        };
+        if let Err(e) = match_history::save_match(&record) {
+            tracing::warn!("Failed to save match history: {e}");
+        }
+    }
+
     emit_state(&app, &state);
     Ok(())
 }
@@ -874,6 +892,18 @@ fn set_settings(
         .map_err(|e| format!("Lock poisoned: {e}"))
 }
 
+// ── Match history commands ───────────────────────────────────────────────
+
+#[tauri::command]
+fn get_match_history() -> Result<Vec<match_history::MatchRecord>, String> {
+    match_history::load_history()
+}
+
+#[tauri::command]
+fn clear_match_history() -> Result<(), String> {
+    match_history::clear_history()
+}
+
 // ── Model management commands ────────────────────────────────────────────
 
 #[tauri::command]
@@ -1078,6 +1108,8 @@ fn main() {
             pause_match,
             resume_match,
             get_match_state,
+            get_match_history,
+            clear_match_history,
             start_listening,
             stop_listening,
             list_microphone,
