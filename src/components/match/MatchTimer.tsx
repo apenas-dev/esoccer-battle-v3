@@ -1,5 +1,5 @@
 import { cn } from "../../lib/cn";
-import { type HTMLAttributes, useEffect, useRef } from 'react';
+import { type HTMLAttributes, memo, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 
 
@@ -16,7 +16,7 @@ export function formatTime(totalSeconds: number): string {
 }
 
 // ── Component ─────────────────────────────────────────
-export function MatchTimer({ elapsedSeconds, isRunning, className, ...props }: MatchTimerProps) {
+export const MatchTimer = memo(function MatchTimer({ elapsedSeconds, isRunning, className, ...props }: MatchTimerProps) {
   const formatted = formatTime(elapsedSeconds);
   const prevRef = useRef(formatted);
   const changed = formatted !== prevRef.current;
@@ -50,4 +50,4 @@ export function MatchTimer({ elapsedSeconds, isRunning, className, ...props }: M
       </div>
     </div>
   );
-}
+});

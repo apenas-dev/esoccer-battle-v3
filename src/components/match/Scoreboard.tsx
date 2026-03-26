@@ -1,10 +1,9 @@
 import { cn } from "../../lib/cn";
-import { type HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react';
+import { type HTMLAttributes, memo, useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { type MatchStatus } from '../../lib/types';
 
-
-// ── Types ─────────────────────────────────────────────
-export type MatchStatus = 'idle' | 'playing' | 'paused' | 'challenge' | 'finished';
+export type { MatchStatus } from '../../lib/types';
 
 export interface ScoreboardProps extends HTMLAttributes<HTMLDivElement> {
   teamAName: string;
@@ -16,7 +15,6 @@ export interface ScoreboardProps extends HTMLAttributes<HTMLDivElement> {
   onScoreBChange?: (newScore: number) => void;
 }
 
-// ── Confetti ──────────────────────────────────────────
 function ConfettiExplosion({ active, team }: { active: boolean; team: 'A' | 'B' }) {
   const [particles, setParticles] = useState<Array<{ id: number; color: string; delay: number; angle: number; distance: number }>>([]);
 
@@ -50,7 +48,6 @@ function ConfettiExplosion({ active, team }: { active: boolean; team: 'A' | 'B' 
   );
 }
 
-// ── Score Cell ────────────────────────────────────────
 function ScoreCell({ score, team, isEditing, onIncrement, onDecrement }: {
   score: number; team: 'A' | 'B'; isEditing: boolean;
   onIncrement: () => void; onDecrement: () => void;
@@ -79,7 +76,6 @@ function ScoreCell({ score, team, isEditing, onIncrement, onDecrement }: {
   );
 }
 
-// ── Status Badge ──────────────────────────────────────
 function StatusBadge({ status }: { status: MatchStatus }) {
   const cfg: Record<MatchStatus, { label: string; cls: string }> = {
     idle: { label: 'AGUARDANDO', cls: 'bg-gray-700 text-gray-400' },
@@ -103,7 +99,6 @@ function StatusBadge({ status }: { status: MatchStatus }) {
   );
 }
 
-// ── Winner Banner ─────────────────────────────────────
 function WinnerBanner({ scoreA, scoreB, teamAName, teamBName }: { scoreA: number; scoreB: number; teamAName: string; teamBName: string }) {
   const w = scoreA > scoreB ? teamAName : scoreB > scoreA ? teamBName : null;
   const accent = w === teamAName ? 'text-cyan-400' : w === teamBName ? 'text-red-400' : 'text-amber-400';
@@ -116,8 +111,7 @@ function WinnerBanner({ scoreA, scoreB, teamAName, teamBName }: { scoreA: number
   );
 }
 
-// ── Scoreboard ────────────────────────────────────────
-export function Scoreboard({ teamAName, teamBName, scoreA, scoreB, status, onScoreAChange, onScoreBChange, className, ...props }: ScoreboardProps) {
+export const Scoreboard = memo(function Scoreboard({ teamAName, teamBName, scoreA, scoreB, status, onScoreAChange, onScoreBChange, className, ...props }: ScoreboardProps) {
   const [confettiTeam, setConfettiTeam] = useState<'A' | 'B' | null>(null);
   const prevA = useRef(scoreA);
   const prevB = useRef(scoreB);
@@ -162,4 +156,4 @@ export function Scoreboard({ teamAName, teamBName, scoreA, scoreB, status, onSco
       </div>
     </div>
   );
-}
+});

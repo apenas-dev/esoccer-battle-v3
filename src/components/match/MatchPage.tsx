@@ -1,21 +1,25 @@
 import { cn } from "../../lib/cn";
 import { useCallback, useEffect, useState, type HTMLAttributes } from 'react';
 import { motion } from 'framer-motion';
+import { type MatchStatus } from '../../lib/types';
 
-
-import { Scoreboard, type MatchStatus } from './Scoreboard';
+import { Scoreboard } from './Scoreboard';
 import { MatchTimer } from './MatchTimer';
 import { VoiceIndicator, type VoiceState } from './VoiceIndicator';
 import { CommandLog, type CommandEntry } from './CommandLog';
 import { MatchControls } from './MatchControls';
 
-// ── Types ─────────────────────────────────────────────
+function generateId(): string {
+  return (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export interface MatchPageProps extends HTMLAttributes<HTMLDivElement> {
   teamAName?: string;
   teamBName?: string;
 }
 
-// ── Component ─────────────────────────────────────────
 export function MatchPage({ teamAName = 'Time A', teamBName = 'Time B', className, ...props }: MatchPageProps) {
   const [status, setStatus] = useState<MatchStatus>('idle');
   const [scoreA, setScoreA] = useState(0);
@@ -25,21 +29,19 @@ export function MatchPage({ teamAName = 'Time A', teamBName = 'Time B', classNam
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [commands, setCommands] = useState<CommandEntry[]>([]);
 
-  // Timer tick
   useEffect(() => {
     if (!timerRunning) return;
     const id = setInterval(() => setElapsed((s) => s + 1), 1000);
     return () => clearInterval(id);
   }, [timerRunning]);
 
-  // Voice state sync
   useEffect(() => {
     setVoiceState(status === 'playing' ? 'listening' : (status === 'idle' || status === 'finished') ? 'idle' : voiceState === 'listening' ? 'idle' : voiceState);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
   const addCmd = useCallback((text: string, type: CommandEntry['type'] = 'control') => {
-    setCommands((p) => [{ id: crypto.randomUUID(), text, timestamp: new Date(), type }, ...p]);
+    setCommands((p) => [{ id: generateId(), text, timestamp: new Date(), type }, ...p]);
   }, []);
 
   const handleStart = useCallback(() => {
@@ -60,8 +62,19 @@ export function MatchPage({ teamAName = 'Time A', teamBName = 'Time B', classNam
   const handleChallenge = useCallback(() => {
     setStatus('challenge');
     addCmd('❓ Dúvida / Contestação', 'challenge');
-    setTimeout(() => { if (status === 'challenge') setStatus('playing'); }, 5000);
-  }, [addCmd, status]);
+    setTimeout(() => {
+      setStatus((prev: MatchStatus) => prev === 'challenge' ? 'playing' : prev);
+      setTimerRunning(true);
+      setVoiceState('listening');
+    }, 5000);
+  }, [addCmd]);
+
+  const handleResolveChallenge = useCallback(() => {
+    setStatus('playing');
+    setTimerRunning(true);
+    setVoiceState('listening');
+    addCmd('✅ Dúvida resolvida', 'challenge');
+  }, [addCmd]);
 
   return (
     <div className={cn('min-h-screen bg-[#0a0f1a] text-white flex flex-col items-center px-4 py-6 sm:px-6 sm:py-8', className)} {...props}>
@@ -83,7 +96,8 @@ export function MatchPage({ teamAName = 'Time A', teamBName = 'Time B', classNam
         <section aria-label="Controles manuais">
           <MatchControls status={status} onStart={handleStart} onPause={handlePause} onResume={handleResume}
             onEnd={handleEnd} onUndo={handleUndo} onChallenge={handleChallenge}
-            onGoalA={handleGoalA} onGoalB={handleGoalB} teamAName={teamAName} teamBName={teamBName} />
+            onGoalA={handleGoalA} onGoalB={handleGoalB} teamAName={teamAName} teamBName={teamBName}
+            onResolveChallenge={handleResolveChallenge} />
         </section>
       </main>
 

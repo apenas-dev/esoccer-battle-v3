@@ -7,9 +7,8 @@ import { MatchTimer } from '../components/match/MatchTimer';
 import { VoiceIndicator, type VoiceState } from '../components/match/VoiceIndicator';
 import { CommandLog, type CommandEntry } from '../components/match/CommandLog';
 import { MatchControls } from '../components/match/MatchControls';
-import type { MatchStatus } from '../components/match/Scoreboard';
+import { type MatchStatus } from '../lib/types';
 
-// Map Tauri MatchState.status to UI MatchStatus
 function mapStatus(status: string): MatchStatus {
   if (status === 'playing' || status === 'challenge' || status === 'finished' || status === 'idle' || status === 'paused') return status;
   return 'idle';
@@ -21,8 +20,23 @@ function mapVoiceState(status: string): VoiceState {
   return 'idle';
 }
 
+function generateId(): string {
+  return (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : `cmd-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function useCommandLog() {
+  const [commands, setCommands] = useState<CommandEntry[]>([]);
+  return [commands, setCommands] as const;
+}
+
+function addCommand(setter: React.Dispatch<React.SetStateAction<CommandEntry[]>>, text: string, type: CommandEntry['type'] = 'control') {
+  setter((prev) => [{ id: generateId(), text, timestamp: new Date(), type }, ...prev]);
+}
+
 export function MatchPageConnected() {
-  const { matchState, startMatch, endMatch, goalA, goalB, restart, challenge } = useMatchState();
+  const { matchState, startMatch, endMatch, goalA, goalB, restart, challenge, resolveChallenge } = useMatchState();
   const voice = useVoiceCommands(matchState.status === 'playing');
 
   const uiStatus = mapStatus(matchState.status);
@@ -36,6 +50,7 @@ export function MatchPageConnected() {
   const handleGoalB = useCallback(() => { goalB(); addCommand(setCommands, `⚽ Gol do ${matchState.team_b_name}`, 'goal'); }, [goalB, matchState.team_b_name, setCommands]);
   const handleRestart = useCallback(() => { restart(); addCommand(setCommands, '↩ Volta seis'); }, [restart, setCommands]);
   const handleChallenge = useCallback(() => { challenge(); addCommand(setCommands, '❓ Dúvida', 'challenge'); }, [challenge, setCommands]);
+  const handleResolveChallenge = useCallback(() => { resolveChallenge(); addCommand(setCommands, '✅ Dúvida resolvida', 'challenge'); }, [resolveChallenge, setCommands]);
 
   return (
     <div className="min-h-screen bg-[#0a0f1a] text-white flex flex-col items-center px-4 py-6 sm:px-6 sm:py-8">
@@ -77,6 +92,7 @@ export function MatchPageConnected() {
             onEnd={handleEnd}
             onUndo={handleRestart}
             onChallenge={handleChallenge}
+            onResolveChallenge={handleResolveChallenge}
             onGoalA={handleGoalA}
             onGoalB={handleGoalB}
             teamAName={matchState.team_a_name}
@@ -93,15 +109,3 @@ export function MatchPageConnected() {
     </div>
   );
 }
-
-// ── Helpers ───────────────────────────────────────────
-
-function useCommandLog() {
-  const [commands, setCommands] = useState<CommandEntry[]>([]);
-  return [commands, setCommands] as const;
-}
-
-function addCommand(setter: React.Dispatch<React.SetStateAction<CommandEntry[]>>, text: string, type: CommandEntry['type'] = 'control') {
-  setter((prev) => [{ id: crypto.randomUUID(), text, timestamp: new Date(), type }, ...prev]);
-}
-

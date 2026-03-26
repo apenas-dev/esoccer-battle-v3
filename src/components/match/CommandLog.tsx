@@ -1,5 +1,5 @@
 import { cn } from "../../lib/cn";
-import { type HTMLAttributes } from 'react';
+import { type HTMLAttributes, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 
@@ -21,7 +21,7 @@ function fmtTime(d: Date) {
 }
 
 // ── Component ─────────────────────────────────────────
-export function CommandLog({ commands, maxEntries = 5, className, ...props }: CommandLogProps) {
+export const CommandLog = memo(function CommandLog({ commands, maxEntries = 5, className, ...props }: CommandLogProps) {
   const visible = commands.slice(0, maxEntries);
 
   return (
@@ -63,4 +63,4 @@ export function CommandLog({ commands, maxEntries = 5, className, ...props }: Co
       </div>
     </div>
   );
-}
+});

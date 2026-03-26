@@ -1,6 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
+// ── Helpers ───────────────────────────────────────────
+
+export function isTauri(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
 // ── Types ─────────────────────────────────────────────
 
 export interface MatchState {
@@ -18,8 +24,13 @@ export interface DeviceResult {
 }
 
 export interface AppSettings {
-  // Adjust based on actual Rust struct
-  [key: string]: unknown;
+  mic_device: string | null;
+  model: string;
+  language: string;
+  voice_threshold: number;
+  theme: string;
+  team_a_name: string;
+  team_b_name: string;
 }
 
 export interface ModelInfo {

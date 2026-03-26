@@ -1,5 +1,5 @@
 import { cn } from "../../lib/cn";
-import { type HTMLAttributes } from 'react';
+import { type HTMLAttributes, memo } from 'react';
 import { motion } from 'framer-motion';
 
 
@@ -33,7 +33,7 @@ function PulseRing({ state }: { state: VoiceState }) {
 }
 
 // ── Component ─────────────────────────────────────────
-export function VoiceIndicator({ voiceState, label, className, ...props }: VoiceIndicatorProps) {
+export const VoiceIndicator = memo(function VoiceIndicator({ voiceState, label, className, ...props }: VoiceIndicatorProps) {
   const isActive = voiceState === 'listening';
   const cfg: Record<VoiceState, { text: string; color: string; bg: string }> = {
     idle: { text: label ?? 'Mic desligado', color: 'text-gray-500', bg: 'bg-gray-800' },
@@ -67,4 +67,4 @@ export function VoiceIndicator({ voiceState, label, className, ...props }: Voice
       </motion.span>
     </div>
   );
-}
+});

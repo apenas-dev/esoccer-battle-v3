@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { onVoiceText, onCommandUnknown } from '../lib/tauri';
+import { onVoiceText, onCommandUnknown, isTauri } from '../lib/tauri';
 
 export interface VoiceCommandState {
   lastText: string;
@@ -7,17 +7,21 @@ export interface VoiceCommandState {
   isListening: boolean;
 }
 
-export function useVoiceCommands(isListening: boolean) {
-  const [state, setState] = useState<VoiceCommandState>({
-    lastText: '',
-    lastUnknownText: '',
-    isListening: false,
-  });
+const idleState: VoiceCommandState = {
+  lastText: '',
+  lastUnknownText: '',
+  isListening: false,
+};
+
+export function useVoiceCommands(_isListening: boolean): VoiceCommandState {
+  const [state, setState] = useState<VoiceCommandState>(idleState);
   const mountedRef = useRef(true);
 
   useEffect(() => {
+    if (!isTauri()) return;
+
     mountedRef.current = true;
-    setState((prev) => ({ ...prev, isListening }));
+    setState((prev) => ({ ...prev, isListening: _isListening }));
 
     const unsubs: Promise<() => void>[] = [
       onVoiceText(({ text }) => {
@@ -32,7 +36,7 @@ export function useVoiceCommands(isListening: boolean) {
       mountedRef.current = false;
       unsubs.forEach((p) => p.then((fn) => fn()));
     };
-  }, [isListening]);
+  }, [_isListening]);
 
   return state;
 }

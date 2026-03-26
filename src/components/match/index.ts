@@ -1,4 +1,4 @@
-// ── E-Soccer Battle V2 — Match Components ────────────
+// ── E-Soccer Battle V3 — Match Components ────────────
 // Import individual components or the full MatchPage.
 
 export { MatchPage, type MatchPageProps } from './MatchPage';

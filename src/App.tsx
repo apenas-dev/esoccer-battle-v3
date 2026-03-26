@@ -1,10 +1,9 @@
 import { lazy, Suspense } from 'react';
+import { isTauri } from './lib/tauri';
 import { MatchPage } from './components/match';
 
-const isTauri = '__TAURI_INTERNALS__' in window;
-
 const MatchPageConnected = lazy(() =>
-  isTauri
+  isTauri()
     ? import('./pages/MatchPageConnected').then((m) => ({ default: m.MatchPageConnected }))
     : Promise.resolve({ default: () => <></> })
 );
@@ -18,7 +17,7 @@ function Fallback() {
 }
 
 export function App() {
-  if (isTauri) {
+  if (isTauri()) {
     return (
       <Suspense fallback={<Fallback />}>
         <MatchPageConnected />

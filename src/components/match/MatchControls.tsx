@@ -1,10 +1,7 @@
 import { cn } from "../../lib/cn";
-import { type HTMLAttributes } from 'react';
+import { type HTMLAttributes, memo } from 'react';
 import { motion } from 'framer-motion';
-
-
-// ── Types ─────────────────────────────────────────────
-type MatchStatus = 'idle' | 'playing' | 'paused' | 'challenge' | 'finished';
+import { type MatchStatus } from '../../lib/types';
 
 export interface MatchControlsProps extends HTMLAttributes<HTMLDivElement> {
   status: MatchStatus;
@@ -14,16 +11,16 @@ export interface MatchControlsProps extends HTMLAttributes<HTMLDivElement> {
   onEnd?: () => void;
   onUndo?: () => void;
   onChallenge?: () => void;
+  onResolveChallenge?: () => void;
   onGoalA?: () => void;
   onGoalB?: () => void;
   teamAName?: string;
   teamBName?: string;
 }
 
-// ── Button ────────────────────────────────────────────
-function CtrlBtn({ label, icon, onClick, variant = 'default', disabled, ariaLabel }: {
+const CtrlBtn = memo(function CtrlBtn({ label, icon, onClick, variant = 'default', disabled, ariaLabel }: {
   label: string; icon: React.ReactNode; onClick?: () => void;
-  variant?: 'default' | 'primary' | 'danger' | 'warning' | 'goalA' | 'goalB';
+  variant?: 'default' | 'primary' | 'danger' | 'warning' | 'goalA' | 'goalB' | 'resolve';
   disabled?: boolean; ariaLabel: string;
 }) {
   const styles: Record<string, string> = {
@@ -33,6 +30,7 @@ function CtrlBtn({ label, icon, onClick, variant = 'default', disabled, ariaLabe
     warning: 'bg-amber-900/40 border-amber-500/20 text-amber-400 hover:bg-amber-900/60 hover:border-amber-500/40 focus-visible:ring-amber-400',
     goalA: 'bg-cyan-900/40 border-cyan-500/20 text-cyan-400 hover:bg-cyan-900/60 hover:border-cyan-500/40 focus-visible:ring-cyan-400',
     goalB: 'bg-red-900/40 border-red-500/20 text-red-400 hover:bg-red-900/60 hover:border-red-500/40 focus-visible:ring-red-400',
+    resolve: 'bg-violet-900/40 border-violet-500/20 text-violet-400 hover:bg-violet-900/60 hover:border-violet-500/40 focus-visible:ring-violet-400',
   };
 
   return (
@@ -43,10 +41,9 @@ function CtrlBtn({ label, icon, onClick, variant = 'default', disabled, ariaLabe
       <span>{label}</span>
     </motion.button>
   );
-}
+});
 
-// ── Component ─────────────────────────────────────────
-export function MatchControls({ status, onStart, onPause, onResume, onEnd, onUndo, onChallenge, onGoalA, onGoalB, teamAName = 'Time A', teamBName = 'Time B', className, ...props }: MatchControlsProps) {
+export const MatchControls = memo(function MatchControls({ status, onStart, onPause, onResume, onEnd, onUndo, onChallenge, onResolveChallenge, onGoalA, onGoalB, teamAName = 'Time A', teamBName = 'Time B', className, ...props }: MatchControlsProps) {
   const idle = status === 'idle';
   const playing = status === 'playing';
   const paused = status === 'paused';
@@ -62,6 +59,7 @@ export function MatchControls({ status, onStart, onPause, onResume, onEnd, onUnd
         {paused && <CtrlBtn label="Retomar" icon="▶" onClick={onResume} variant="primary" ariaLabel="Retomar a partida" />}
         {canAct && <CtrlBtn label="Volta Seis" icon="↩" onClick={onUndo} variant="default" ariaLabel="Desfazer último comando" />}
         {canAct && !challenge && <CtrlBtn label="Dúvida" icon="❓" onClick={onChallenge} variant="warning" ariaLabel="Acionar dúvida" />}
+        {challenge && <CtrlBtn label="Resolver" icon="✅" onClick={onResolveChallenge} variant="resolve" ariaLabel="Resolver dúvida" />}
         {!idle && !finished && <CtrlBtn label="Encerrar" icon="⏹" onClick={onEnd} variant="danger" ariaLabel="Encerrar a partida" />}
         {finished && <CtrlBtn label="Nova Partida" icon="🔄" onClick={onStart} variant="primary" ariaLabel="Iniciar nova partida" />}
       </div>
@@ -79,9 +77,9 @@ export function MatchControls({ status, onStart, onPause, onResume, onEnd, onUnd
         {idle && 'Comandos de voz disponíveis ao iniciar'}
         {playing && 'Mic ativo — diga "gol do time A" ou use os botões acima'}
         {paused && 'Partida pausada — diga "começar" ou clique em retomar'}
-        {challenge && 'Dúvida registrada — aguardando resolução'}
+        {challenge && 'Dúvida registrada — clique em Resolver ou aguarde'}
         {finished && 'Partida encerrada — inicie uma nova partida'}
       </motion.p>
     </div>
   );
-}
+});
