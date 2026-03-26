@@ -16,6 +16,8 @@ import { LanguageSelector } from '../components/settings/LanguageSelector';
 import { VoiceThresholdSlider } from '../components/settings/VoiceThresholdSlider';
 import { ThemeToggle } from '../components/settings/ThemeToggle';
 import { TeamNames } from '../components/settings/TeamNames';
+import { STTProviderSelector } from '../components/settings/STTProviderSelector';
+import { getSTTPreference, setSTTPreference, type STTProviderName } from '../services/stt';
 
 // ── Tipos ─────────────────────────────────────────────
 
@@ -46,6 +48,15 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     team_a_name: 'Time A',
     team_b_name: 'Time B',
   });
+
+  // STT provider preference (localStorage, frontend-only)
+  const [sttProvider, setSTTProviderState] = useState<STTProviderName>(getSTTPreference);
+
+  const handleSTTProviderChange = useCallback((name: STTProviderName) => {
+    setSTTPreference(name);
+    setSTTProviderState(name);
+    showToast('Motor de voz atualizado', 'success');
+  }, []);
 
   // Dados externos
   const [microphones, setMicrophones] = useState<string[]>([]);
@@ -196,6 +207,8 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
 
       {/* Conteúdo */}
       <main className="w-full max-w-3xl space-y-4">
+        <STTProviderSelector value={sttProvider} onChange={handleSTTProviderChange} />
+
         <MicSelector
           microphones={microphones}
           selected={settings.mic_device}

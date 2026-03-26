@@ -1,42 +1,58 @@
 import { useEffect, useRef, useState } from 'react';
-import { onVoiceText, onCommandUnknown, isTauri } from '../lib/tauri';
+import { createSTTProvider, type ISTTProvider, type STTProviderName } from '../services/stt';
 
 export interface VoiceCommandState {
   lastText: string;
   lastUnknownText: string;
   isListening: boolean;
+  providerName: string;
 }
 
 const idleState: VoiceCommandState = {
   lastText: '',
   lastUnknownText: '',
   isListening: false,
+  providerName: '',
 };
 
-export function useVoiceCommands(_isListening: boolean): VoiceCommandState {
+export function useVoiceCommands(
+  shouldListen: boolean,
+  preference?: STTProviderName,
+): VoiceCommandState {
   const [state, setState] = useState<VoiceCommandState>(idleState);
-  const mountedRef = useRef(true);
+  const providerRef = useRef<ISTTProvider | null>(null);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    const provider = createSTTProvider(preference);
+    providerRef.current = provider;
 
-    mountedRef.current = true;
-    setState((prev) => ({ ...prev, isListening: _isListening }));
+    setState((prev) => ({
+      ...prev,
+      isListening: shouldListen && provider.isAvailable(),
+      providerName: provider.name,
+    }));
 
-    const unsubs: Promise<() => void>[] = [
-      onVoiceText(({ text }) => {
-        if (mountedRef.current) setState((prev) => ({ ...prev, lastText: text }));
-      }),
-      onCommandUnknown(({ text }) => {
-        if (mountedRef.current) setState((prev) => ({ ...prev, lastUnknownText: text }));
-      }),
-    ];
+    if (!provider.isAvailable()) return;
+
+    const unsubResult = provider.onResult((text) => {
+      setState((prev) => ({ ...prev, lastText: text }));
+    });
+
+    const unsubError = provider.onError((error) => {
+      console.error(`[STT:${provider.name}]`, error);
+    });
+
+    if (shouldListen) {
+      provider.start({ language: 'pt-BR', continuous: false });
+    }
 
     return () => {
-      mountedRef.current = false;
-      unsubs.forEach((p) => p.then((fn) => fn()));
+      provider.stop();
+      unsubResult();
+      unsubError();
+      providerRef.current = null;
     };
-  }, [_isListening]);
+  }, [shouldListen, preference]);
 
   return state;
 }
