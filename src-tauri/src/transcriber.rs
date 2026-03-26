@@ -80,6 +80,27 @@ pub enum Model {
 }
 
 impl Model {
+    /// Parse a model name from a string, supporting both friendly names ("base", "tiny")
+    /// and serde variant names ("BaseWhisper", "TinyWhisper"). Case-insensitive.
+    pub fn from_str_friendly(s: &str) -> Option<Self> {
+        let lower = s.to_lowercase();
+        let model = match lower.as_str() {
+            "tiny" => Self::TinyWhisper,
+            "tinyenwhisper" | "tiny_en" | "tiny-en" | "tinywhisperen" => Self::TinyEnWhisper,
+            "tinyquantized" | "tiny_quantized" | "tiny-q" => Self::TinyQuantized,
+            "tinyenquantized" | "tiny_en_quantized" | "tiny-en-q" => Self::TinyEnQuantized,
+            "base" => Self::BaseWhisper,
+            "baseenwhisper" | "base_en" | "base-en" | "basewhisperen" => Self::BaseEnWhisper,
+            "basequantized" | "base_quantized" | "base-q" => Self::BaseQuantized,
+            "baseenquantized" | "base_en_quantized" | "base-en-q" => Self::BaseEnQuantized,
+            // Also support full serde names
+            "tinywhisper" => Self::TinyWhisper,
+            "basewhisper" => Self::BaseWhisper,
+            _ => return None,
+        };
+        Some(model)
+    }
+
     pub fn default_model() -> Self {
         Self::BaseWhisper
     }

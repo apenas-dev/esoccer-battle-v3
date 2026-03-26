@@ -227,18 +227,20 @@ fn start_match(
             .map_err(|e| format!("Lock poisoned: {e}"))?;
         (s.mic_device.clone(), s.model.clone())
     };
-    match serde_json::from_value::<transcriber::Model>(serde_json::json!(model_str)) {
-        Ok(model) => {
-            if !model.is_downloaded() {
-                tracing::warn!("[start_match] Model '{model_str}' not downloaded — voice disabled");
-            } else {
-                match start_listening_inner(&app, app.state::<VoicePipelineState>().inner(), mic_device, model) {
-                    Ok(()) => tracing::info!("[start_match] Voice pipeline started automatically"),
-                    Err(e) => tracing::warn!("[start_match] Failed to start voice pipeline (non-fatal): {e}"),
-                }
-            }
+    let model = match transcriber::Model::from_str_friendly(&model_str) {
+        Some(m) => m,
+        None => {
+            tracing::warn!("[start_match] Unknown model '{model_str}' — voice disabled");
+            return Ok(());
         }
-        Err(e) => tracing::warn!("[start_match] Unknown model '{model_str}': {e} — voice disabled"),
+    };
+    if !model.is_downloaded() {
+        tracing::warn!("[start_match] Model '{model_str}' not downloaded — voice disabled");
+    } else {
+        match start_listening_inner(&app, app.state::<VoicePipelineState>().inner(), mic_device, model) {
+            Ok(()) => tracing::info!("[start_match] Voice pipeline started automatically"),
+            Err(e) => tracing::warn!("[start_match] Failed to start voice pipeline (non-fatal): {e}"),
+        }
     }
 
     Ok(())
@@ -334,8 +336,8 @@ fn restart(
             .map_err(|e| format!("Lock poisoned: {e}"))?;
         (s.mic_device.clone(), s.model.clone())
     };
-    match serde_json::from_value::<transcriber::Model>(serde_json::json!(model_str)) {
-        Ok(model) if model.is_downloaded() => {
+    match transcriber::Model::from_str_friendly(&model_str) {
+        Some(model) if model.is_downloaded() => {
             if let Err(e) = start_listening_inner(&app, pipeline.inner(), mic_device, model) {
                 tracing::warn!("[restart] Failed to restart voice pipeline: {e}");
             }

@@ -18,8 +18,14 @@ pub fn save<D: Serialize>(data: &D) -> anyhow::Result<()> {
 }
 
 pub fn load<D: DeserializeOwned>() -> anyhow::Result<D> {
-    let data = std::fs::read(config_path::<D>())?;
+    let path = config_path::<D>();
+    let data = std::fs::read(&path)?;
     Ok(bincode::deserialize(&data)?)
+}
+
+/// Returns `Ok(true)` if the config file exists, `Ok(false)` if it doesn't (first run).
+pub fn exists<D>() -> bool {
+    config_path::<D>().exists()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +62,14 @@ impl AppSettings {
     pub fn load_or_default() -> Self {
         match load::<Self>() {
             Ok(s) => s,
+            Err(e) if e.downcast_ref::<std::io::Error>().map_or(false, |io| io.kind() == std::io::ErrorKind::NotFound) => {
+                // First run — no config file yet. Save defaults for next time.
+                let defaults = Self::new();
+                if let Err(save_err) = save(&defaults) {
+                    tracing::warn!("Failed to save default settings: {save_err}");
+                }
+                defaults
+            }
             Err(e) => {
                 warn!("Failed to load settings, using defaults: {e}");
                 Self::new()
