@@ -21,8 +21,7 @@ function formatSize(bytes: number): string {
 }
 
 export function ModelDownloader({
-  // categories still accepted for API compat but no longer used
-  categories: _categories,
+  categories,
   models,
   activeModel,
   downloading,
@@ -30,77 +29,84 @@ export function ModelDownloader({
   onSelect,
   onDownload,
 }: ModelDownloaderProps) {
-  // Push-to-Talk: apenas TinyWhisper disponível
-  const filteredModels = models.filter((m) => m.type === 'TinyWhisper');
+  // Mostrar todos os modelos, agrupados por categoria
+  const grouped = categories.map((cat) => ({
+    ...cat,
+    models: models.filter((m) => m.category === cat.type),
+  }));
 
   return (
     <SettingsCard title="Modelo Whisper" icon="📥">
-      <div className="space-y-2">
-        {filteredModels.map((model) => {
-          const isActive = model.type === activeModel;
-          const isDownloading = downloading === model.type;
-          const progress = downloadProgress[model.type] ?? 0;
+      <div className="space-y-4">
+        {grouped.map((group) => (
+          <div key={group.type}>
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">{group.name}</p>
+            <div className="space-y-2">
+              {group.models.map((model) => {
+                const isActive = model.type === activeModel;
+                const isDownloading = downloading === model.type;
+                const progress = downloadProgress[model.type] ?? 0;
 
-          return (
-            <motion.div
-              key={model.name}
-              className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors cursor-pointer ${
-                isActive
-                  ? 'border-[#00ff88]/40 bg-[#00ff88]/5'
-                  : 'border-gray-800 bg-[#0a0f1a] hover:border-gray-700'
-              }`}
-              onClick={() => model.is_downloaded && onSelect(model.type)}
-            >
-              <div
-                className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                  isActive ? 'bg-[#00ff88] shadow-[0_0_8px_#00ff88]' : 'bg-gray-600'
-                }`}
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">
-                  {model.type_name || model.name}
-                  {isActive && (
-                    <span className="ml-2 text-[10px] text-[#00ff88] font-normal">ATIVO</span>
-                  )}
-                </p>
-                <div className="flex gap-3 text-[11px] text-gray-500">
-                  <span>💾 {formatSize(model.disk_usage)}</span>
-                  <span>🧠 {formatSize(model.mem_usage)}</span>
-                </div>
-                {isDownloading && (
-                  <div className="mt-1.5 w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
-                    <motion.div
-                      className="h-full bg-[#00ff88] rounded-full"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${progress}%` }}
-                      transition={{ duration: 0.3 }}
+                return (
+                  <motion.div
+                    key={model.type}
+                    className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors cursor-pointer ${
+                      isActive
+                        ? 'border-[#00ff88]/40 bg-[#00ff88]/5'
+                        : 'border-gray-800 bg-[#0a0f1a] hover:border-gray-700'
+                    }`}
+                    onClick={() => model.is_downloaded && onSelect(model.type)}
+                  >
+                    <div
+                      className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                        isActive ? 'bg-[#00ff88] shadow-[0_0_8px_#00ff88]' : 'bg-gray-600'
+                      }`}
                     />
-                    <p className="text-[10px] text-gray-400 mt-0.5">{Math.round(progress)}%</p>
-                  </div>
-                )}
-              </div>
-              {model.is_downloaded ? (
-                <span className="text-xs text-[#00ff88] flex-shrink-0">✓</span>
-              ) : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDownload(model.type);
-                  }}
-                  disabled={isDownloading}
-                  className="text-xs px-2.5 py-1 rounded-md bg-[#00ff88]/10 text-[#00ff88]
-                             hover:bg-[#00ff88]/20 disabled:opacity-40 disabled:cursor-not-allowed
-                             transition-colors flex-shrink-0"
-                >
-                  {isDownloading ? `${Math.round(progress)}%` : 'Baixar'}
-                </button>
-              )}
-            </motion.div>
-          );
-        })}
-        {filteredModels.length === 0 && (
-          <p className="text-xs text-gray-600 text-center py-4">Nenhum modelo TinyWhisper disponível.</p>
-        )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">
+                        {model.type_name || model.name}
+                        {isActive && (
+                          <span className="ml-2 text-[10px] text-[#00ff88] font-normal">ATIVO</span>
+                        )}
+                      </p>
+                      <div className="flex gap-3 text-[11px] text-gray-500">
+                        <span>💾 {formatSize(model.disk_usage)}</span>
+                        <span>🧠 {formatSize(model.mem_usage)}</span>
+                      </div>
+                      {isDownloading && (
+                        <div className="mt-1.5 w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                          <motion.div
+                            className="h-full bg-[#00ff88] rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${progress}%` }}
+                            transition={{ duration: 0.3 }}
+                          />
+                          <p className="text-[10px] text-gray-400 mt-0.5">{Math.round(progress)}%</p>
+                        </div>
+                      )}
+                    </div>
+                    {model.is_downloaded ? (
+                      <span className="text-xs text-[#00ff88] flex-shrink-0">✓</span>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDownload(model.type);
+                        }}
+                        disabled={isDownloading}
+                        className="text-xs px-2.5 py-1 rounded-md bg-[#00ff88]/10 text-[#00ff88]
+                                   hover:bg-[#00ff88]/20 disabled:opacity-40 disabled:cursor-not-allowed
+                                   transition-colors flex-shrink-0"
+                      >
+                        {isDownloading ? `${Math.round(progress)}%` : 'Baixar'}
+                      </button>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </SettingsCard>
   );

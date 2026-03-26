@@ -44,7 +44,7 @@ impl AppSettings {
     pub fn new() -> Self {
         Self {
             mic_device: None,
-            model: "base".to_owned(),
+            model: "BaseWhisper".to_owned(),
             language: "pt".to_owned(),
             voice_threshold: 0.3,
             theme: "dark".to_owned(),

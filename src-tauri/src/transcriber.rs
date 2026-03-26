@@ -98,9 +98,6 @@ impl Model {
             "baseenwhisper" | "base_en" | "base-en" | "basewhisperen" => Self::BaseEnWhisper,
             "basequantized" | "base_quantized" | "base-q" => Self::BaseQuantized,
             "baseenquantized" | "base_en_quantized" | "base-en-q" => Self::BaseEnQuantized,
-            // Also support full serde names
-            "tinywhisper" => Self::TinyWhisper,
-            "basewhisper" => Self::BaseWhisper,
             _ => return None,
         };
         Some(model)
