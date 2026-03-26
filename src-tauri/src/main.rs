@@ -784,6 +784,9 @@ fn start_recording(
 fn stop_recording_and_transcribe(
     app: tauri::AppHandle,
     recording_state: State<'_, RecordingState>,
+    match_state: State<'_, MatchState>,
+    timer_state: State<'_, TimerHandle>,
+    pipeline_state: State<'_, VoicePipelineState>,
     settings: State<'_, Settings>,
 ) -> Result<(), String> {
     let (model_str,) = {
@@ -859,8 +862,28 @@ fn stop_recording_and_transcribe(
 
     let _ = app.emit(
         "voice_text",
-        serde_json::json!({ "text": text }),
+        serde_json::json!({ "text": &text }),
     );
+
+    // Parse and execute voice command directly (no event listener needed)
+    let trimmed = text.trim();
+    if !trimmed.is_empty() {
+        tracing::info!("[voice→game] PTT Received: \"{trimmed}\"");
+        match parser::parse_command(trimmed) {
+            Some(cmd) => {
+                tracing::info!("[voice→game] PTT Parsed command: {cmd:?}");
+                let ms: MatchState = match_state.inner().clone();
+                let ps = pipeline_state.inner();
+                let ts = timer_state.inner();
+                let ss = settings.inner();
+                execute_command(&app, &ms, ps, ts, ss, cmd);
+            }
+            None => {
+                tracing::info!("[voice→game] PTT Unknown command: \"{trimmed}\"");
+                let _ = app.emit("command_unknown", serde_json::json!({ "text": trimmed }));
+            }
+        }
+    }
 
     let _ = app.emit(
         "recording_state",
@@ -1069,7 +1092,7 @@ fn list_model_categories() -> Vec<serde_json::Value> {
 fn setup_voice_to_game(app: &tauri::AppHandle) {
     let app_handle = app.clone();
     tracing::info!("[voice-setup] Event listener registered for voice_text");
-    app.listen("voice_text", move |event: tauri::Event| {
+    let _listener_id = app.listen("voice_text", move |event: tauri::Event| {
         let text = event.payload();
 
         // Parse JSON payload: {"text": "..."}
