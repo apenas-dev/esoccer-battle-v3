@@ -4,7 +4,7 @@ use std::io::Write as _;
 use tauri::Emitter as _;
 
 mod configuration;
-mod recorder;
+mod capture;
 mod transcriber;
 
 type Settings = std::sync::Arc<std::sync::Mutex<configuration::AppSettings>>;
@@ -15,8 +15,8 @@ fn project_directory() -> directories::ProjectDirs {
 }
 
 #[tauri::command]
-fn list_microphone() -> Vec<recorder::DeviceResult> {
-    recorder::list_microphone()
+fn list_microphone() -> Vec<capture::DeviceResult> {
+    capture::list_microphone()
 }
 
 #[tauri::command]
