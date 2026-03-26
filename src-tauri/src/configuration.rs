@@ -33,12 +33,10 @@ pub struct AppSettings {
     pub team_b_name: String,
 }
 
-impl Default for AppSettings {
-    fn default() -> Self {
-        if let Ok(this) = load::<Self>() {
-            return this;
-        }
-        let this = Self {
+impl AppSettings {
+    /// Hard-coded defaults with zero I/O.
+    pub fn new() -> Self {
+        Self {
             mic_device: None,
             model: "base".to_owned(),
             language: "pt".to_owned(),
@@ -46,10 +44,29 @@ impl Default for AppSettings {
             theme: "dark".to_owned(),
             team_a_name: "Time A".to_owned(),
             team_b_name: "Time B".to_owned(),
-        };
-        if let Err(e) = save(&this) {
-            warn!("Failed to save default settings: {e}");
         }
-        this
+    }
+
+    /// Load from disk, returning error on failure.
+    pub fn load() -> anyhow::Result<Self> {
+        load::<Self>()
+    }
+
+    /// Try to load from disk; fall back to [`Self::new()`].
+    pub fn load_or_default() -> Self {
+        match load::<Self>() {
+            Ok(s) => s,
+            Err(e) => {
+                warn!("Failed to load settings, using defaults: {e}");
+                Self::new()
+            }
+        }
+    }
+}
+
+impl Default for AppSettings {
+    /// Returns hard-coded defaults (no I/O).
+    fn default() -> Self {
+        Self::new()
     }
 }

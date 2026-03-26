@@ -45,23 +45,35 @@ fn project_directory() -> directories::ProjectDirs {
 
 /// Spawn the 1-second timer thread. Returns when `match_state.status != Playing`.
 fn spawn_timer(app: tauri::AppHandle, match_state: MatchState) -> TimerGuard {
+    use std::time::Instant;
+
     let shutdown = Arc::new(AtomicBool::new(false));
     let shutdown_clone = shutdown.clone();
 
     let handle = thread::Builder::new()
         .name("match-timer".into())
         .spawn(move || {
+            let mut last_tick = Instant::now();
             loop {
                 if shutdown_clone.load(Ordering::Relaxed) {
                     break;
                 }
-                thread::sleep(Duration::from_secs(1));
+
+                // Measure how long the previous iteration took (lock + emit)
+                // and compensate the sleep so ticks stay near 1 s.
+                let processing_elapsed = last_tick.elapsed();
+                let sleep_duration = Duration::from_secs(1).saturating_sub(processing_elapsed);
+                if !sleep_duration.is_zero() {
+                    thread::sleep(sleep_duration);
+                }
+                last_tick = Instant::now();
 
                 let elapsed = {
                     let mut state = match match_state.lock() {
                         Ok(g) => g,
                         Err(e) => {
                             tracing::warn!("[timer] Lock poisoned: {e}");
+                            let _ = app.emit("timer_error", format!("Lock poisoned: {e}"));
                             break;
                         }
                     };
@@ -334,6 +346,9 @@ fn resolve_challenge_cmd(
         game::resolve_challenge(&mut state);
     }
 
+    // Stop any existing timer before re-spawning
+    stop_timer(&timer);
+
     // Re-spawn timer since we're back to Playing
     let guard = spawn_timer(app.clone(), match_state.inner().clone());
     {
@@ -475,7 +490,17 @@ fn download_model(app: tauri::AppHandle, model: transcriber::Model) -> Result<St
         let predicted_size =
             response.content_length().unwrap_or((model.disk_usage() * 1_000_000) as u64);
 
-        while let Some(chunk) = response.chunk().await.unwrap_or(None) {
+        while let Some(chunk) = match response.chunk().await {
+            Ok(Some(c)) => Some(c),
+            Ok(None) => None,
+            Err(e) => {
+                let _ = app.emit(
+                    &ch,
+                    serde_json::json!({"type": "error", "value": format!("Stream error: {e}")}),
+                );
+                None
+            }
+        } {
             if file.write_all(&chunk).is_err() {
                 let _ = app.emit(
                     &ch,
@@ -493,6 +518,31 @@ fn download_model(app: tauri::AppHandle, model: transcriber::Model) -> Result<St
                     "value": percent.min(100.0),
                 }),
             );
+        }
+
+        drop(file);
+
+        // Verify file size
+        let min_size = (model.disk_usage() * 1_000_000) as u64;
+        match std::fs::metadata(model.path()) {
+            Ok(meta) if meta.len() >= min_size => {}
+            Ok(meta) => {
+                let _ = std::fs::remove_file(model.path());
+                let _ = app.emit(
+                    &ch,
+                    serde_json::json!({"type": "error", "value": format!(
+                        "Downloaded file too small: {} bytes (expected >= {})", meta.len(), min_size
+                    )}),
+                );
+                return;
+            }
+            Err(e) => {
+                let _ = app.emit(
+                    &ch,
+                    serde_json::json!({"type": "error", "value": format!("Failed to verify file: {e}")}),
+                );
+                return;
+            }
         }
 
         let _ = app.emit(&ch, serde_json::json!({"type": "done", "value": ""}));
@@ -570,7 +620,7 @@ fn setup_voice_to_game(app: &tauri::AppHandle) {
 
 fn main() {
     let settings: Settings =
-        Arc::new(Mutex::new(configuration::AppSettings::default()));
+        Arc::new(Mutex::new(configuration::AppSettings::load_or_default()));
 
     let match_state: MatchState = Arc::new(Mutex::new(game::new_match("Time A", "Time B")));
 

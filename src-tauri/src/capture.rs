@@ -86,7 +86,7 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
         .name()
         .unwrap_or_else(|_| "<unnamed>".to_string());
 
-    eprintln!("[capture] Capturing from: {device_label}");
+    tracing::info!("[capture] Capturing from: {device_label}");
 
     let supported = device
         .supported_input_configs()
@@ -131,7 +131,13 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
 
                         let resampled = resample(&mono, source_rate, TARGET_SAMPLE_RATE);
 
-                        let mut buf = buf_clone.lock().unwrap_or_else(|e| e.into_inner());
+                        let mut buf = match buf_clone.lock() {
+                            Ok(b) => b,
+                            Err(e) => {
+                                tracing::warn!("[capture] Audio buffer lock poisoned: {e}");
+                                return;
+                            }
+                        };
                         for s in resampled {
                             if buf.len() >= BUFFER_CAPACITY {
                                 buf.pop_front();
@@ -140,7 +146,7 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
                         }
                     },
                     move |err| {
-                        eprintln!("[capture] Input stream error on {device_label_clone}: {err}");
+                        tracing::warn!("[capture] Input stream error on {device_label_clone}: {err}");
                     },
                     None,
                 )

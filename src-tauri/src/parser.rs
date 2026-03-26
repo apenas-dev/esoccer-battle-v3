@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 use strsim::levenshtein;
 use unicode_normalization::UnicodeNormalization;
 
@@ -17,43 +18,38 @@ struct AliasEntry {
     alias: &'static str,
 }
 
-/// Pre-computed alias table (normalized at build time via const or lazy_static).
-/// We store both original and normalized forms to avoid re-normalizing on every call.
-macro_rules! alias_table {
-    () => {{
-        const ENTRIES: &[(&str, &[&str])] = &[
-            ("StartMatch", &["iniciar partida", "comecar", "iniciar", "play", "começar"]),
-            ("Restart", &["volta seis", "6", "volta", "seis metros", "volta 6"]),
-            ("EndMatch", &["encerrar", "fim", "parar", "stop", "acabar"]),
-            ("Challenge", &["dúvida", "duvida", "contestar", "protestar"]),
-            ("GoalA", &["gol do time a", "gol a", "gol time a", "ponto a", "gol pra mim"]),
-            ("GoalB", &["gol do time b", "gol b", "gol time b", "ponto b", "gol pra eles"]),
-        ];
+/// Alias table built once via `LazyLock`.
+static ALIAS_TABLE: LazyLock<Vec<AliasEntry>> = LazyLock::new(|| {
+    const ENTRIES: &[(&str, &[&str])] = &[
+        ("StartMatch", &["iniciar partida", "comecar", "iniciar", "play", "começar"]),
+        ("Restart", &["volta seis", "6", "volta", "seis metros", "volta 6"]),
+        ("EndMatch", &["encerrar", "fim", "parar", "stop", "acabar"]),
+        ("Challenge", &["dúvida", "duvida", "contestar", "protestar"]),
+        // "gol" alone is ambiguous — require explicit team discriminator.
+        ("GoalA", &["gol do time a", "gol time a", "ponto a", "gol pra mim"]),
+        ("GoalB", &["gol do time b", "gol time b", "ponto b", "gol pra eles"]),
+    ];
 
-        // Build lazily via Vec because we can't use const normalization
-        let mut table: Vec<AliasEntry> = Vec::new();
-        for &(variant, aliases) in ENTRIES {
-            let command = match variant {
-                "StartMatch" => GameCommand::StartMatch,
-                "Restart" => GameCommand::Restart,
-                "EndMatch" => GameCommand::EndMatch,
-                "Challenge" => GameCommand::Challenge,
-                "GoalA" => GameCommand::GoalA,
-                "GoalB" => GameCommand::GoalB,
-                _ => continue,
-            };
-            for &alias in aliases {
-                // We normalize on first call; cache via lazy_static or just recompute
-                // For simplicity and KISS, we normalize each call.
-                table.push(AliasEntry {
-                    command: command.clone(),
-                    alias,
-                });
-            }
+    let mut table: Vec<AliasEntry> = Vec::new();
+    for &(variant, aliases) in ENTRIES {
+        let command = match variant {
+            "StartMatch" => GameCommand::StartMatch,
+            "Restart" => GameCommand::Restart,
+            "EndMatch" => GameCommand::EndMatch,
+            "Challenge" => GameCommand::Challenge,
+            "GoalA" => GameCommand::GoalA,
+            "GoalB" => GameCommand::GoalB,
+            _ => continue,
+        };
+        for &alias in aliases {
+            table.push(AliasEntry {
+                command: command.clone(),
+                alias,
+            });
         }
-        table
-    }};
-}
+    }
+    table
+});
 
 fn normalize(text: &str) -> String {
     text.nfd()
@@ -73,25 +69,40 @@ pub fn parse_command(text: &str) -> Option<GameCommand> {
         return None;
     }
 
-    let table = alias_table!();
+    // If input looks like a goal command, only allow GoalA/GoalB via substring match.
+    let goal_prefixes = ["gol", "ponto"];
+    let is_goal_input = goal_prefixes
+        .iter()
+        .any(|p| normalized.starts_with(p) || normalized.contains(&format!(" {p} ")));
 
     let mut best: Option<(GameCommand, usize)> = None;
 
-    for entry in &table {
+    for entry in ALIAS_TABLE.iter() {
         let alias_norm = normalize(entry.alias);
         let dist = levenshtein(&normalized, &alias_norm);
-        let _alias_len = alias_norm.len().max(normalized.len());
 
-        // Substring match: alias is contained in the text (normalized)
-        let is_substring = normalized.contains(&alias_norm);
+        // Substring match: the full alias must appear as a word-aligned substring.
+        let is_substring = is_word_substring(&normalized, &alias_norm);
 
         if is_substring {
-            // Perfect match via substring — distance 0
             return Some(entry.command.clone());
         }
 
+        // Goal commands require explicit team discriminators — no fuzzy matching.
+        let is_goal = matches!(
+            entry.command,
+            GameCommand::GoalA | GameCommand::GoalB
+        );
+        if is_goal {
+            continue;
+        }
+
+        // If input looks like a goal command, skip fuzzy matching for non-goal aliases.
+        if is_goal_input {
+            continue;
+        }
+
         // Threshold: for very short aliases, use stricter matching
-        // to avoid false positives (e.g. "xxx" matching "6")
         let max_dist = if alias_norm.len() <= 1 { 1 } else { 2 };
 
         if dist <= max_dist {
@@ -100,12 +111,34 @@ pub fn parse_command(text: &str) -> Option<GameCommand> {
                 Some((_, best_dist)) if dist < *best_dist => {
                     best = Some((entry.command.clone(), dist));
                 }
-                Some(_) => {} // keep current best
+                Some(_) => {}
             }
         }
     }
 
     best.map(|(cmd, _)| cmd)
+}
+
+/// Check that `needle` appears in `haystack` as a complete phrase,
+/// bounded by start/end or whitespace.
+fn is_word_substring(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    // Quick containment check first
+    if !haystack.contains(needle) {
+        return false;
+    }
+    for range in haystack.match_indices(needle) {
+        let start = range.0;
+        let end = start + needle.len();
+        let ok_before = start == 0 || haystack.as_bytes()[start - 1] == b' ';
+        let ok_after = end == haystack.len() || haystack.as_bytes()[end] == b' ';
+        if ok_before && ok_after {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -119,8 +152,19 @@ mod tests {
         assert_eq!(parse_command("stop"), Some(GameCommand::EndMatch));
         assert_eq!(parse_command("duvida"), Some(GameCommand::Challenge));
         assert_eq!(parse_command("volta seis"), Some(GameCommand::Restart));
-        assert_eq!(parse_command("gol a"), Some(GameCommand::GoalA));
-        assert_eq!(parse_command("gol b"), Some(GameCommand::GoalB));
+        // "gol a" and "gol b" are no longer aliases
+        assert_eq!(parse_command("gol a"), None);
+        assert_eq!(parse_command("gol b"), None);
+        // Explicit team required
+        assert_eq!(parse_command("gol time a"), Some(GameCommand::GoalA));
+        assert_eq!(parse_command("gol time b"), Some(GameCommand::GoalB));
+        assert_eq!(parse_command("gol do time a"), Some(GameCommand::GoalA));
+        assert_eq!(parse_command("gol do time b"), Some(GameCommand::GoalB));
+    }
+
+    #[test]
+    fn test_gol_alone_returns_none() {
+        assert_eq!(parse_command("gol"), None);
     }
 
     #[test]
@@ -141,15 +185,12 @@ mod tests {
 
     #[test]
     fn test_fuzzy_match_one_edit() {
-        // "iniciar" is an alias; "inicar" has 1 deletion
         assert_eq!(parse_command("inicar"), Some(GameCommand::StartMatch));
-        // "parra" vs "parar" — 1 edit
         assert_eq!(parse_command("parra"), Some(GameCommand::EndMatch));
     }
 
     #[test]
     fn test_fuzzy_match_two_edits() {
-        // "encerrr" vs "encerrar" — 1 insertion → still ≤ 2
         assert_eq!(parse_command("encerrr"), Some(GameCommand::EndMatch));
     }
 
@@ -163,15 +204,12 @@ mod tests {
 
     #[test]
     fn test_full_sentence_substring_match() {
-        // The key: "gol do time a" should be found inside a longer sentence
         assert_eq!(
             parse_command("eu quero gol do time a por favor"),
             Some(GameCommand::GoalA)
         );
-        assert_eq!(
-            parse_command("fala gol a rapaz"),
-            Some(GameCommand::GoalA)
-        );
+        // "gol a" is no longer an alias, so this should NOT match
+        assert_eq!(parse_command("fala gol a rapaz"), None);
         assert_eq!(
             parse_command("aí foi gol pra mim"),
             Some(GameCommand::GoalA)
@@ -199,11 +237,11 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_matches_picks_closest() {
-        // "gol" is close to both "gol a" and "gol b" (distance 2 each).
-        // But "fim" is distance ≤ 2 only to "fim" itself.
-        // "gol" normalized = "gol", "gol a" distance = 2, "gol b" distance = 2
-        // Both qualify; it picks whichever appears first. Test just that it returns Some.
-        assert!(parse_command("gol").is_some());
+    fn test_word_boundary_substring() {
+        // "gol" alone should not match "gol do time a"
+        // because we require word-aligned boundaries for the FULL alias
+        assert_eq!(parse_command("gol"), None);
+        // "gol time a" is a valid alias
+        assert_eq!(parse_command("fala gol time a rapaz"), Some(GameCommand::GoalA));
     }
 }
