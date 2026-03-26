@@ -3,7 +3,7 @@
 use std::io::Write as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::Duration;
 
 use tauri::{Emitter, Listener, Manager, State};
@@ -20,13 +20,21 @@ mod transcriber;
 
 type Settings = Arc<Mutex<configuration::AppSettings>>;
 type MatchState = Arc<Mutex<game::MatchState>>;
-type VoicePipelineState = Mutex<Option<transcriber::VoicePipeline>>;
 type TimerHandle = Mutex<Option<TimerGuard>>;
+
+/// Combined handle that keeps both the transcriber and the audio stream alive.
+/// The `_stream` field is critical — dropping it would stop audio capture.
+struct VoicePipelineHandle {
+    pipeline: transcriber::VoicePipeline,
+    _stream: capture::AudioStream,
+}
+
+type VoicePipelineState = Mutex<Option<VoicePipelineHandle>>;
 
 /// Handle to the background timer thread.
 struct TimerGuard {
     shutdown: Arc<AtomicBool>,
-    thread_handle: JoinHandle<()>,
+    thread_handle: thread::JoinHandle<()>,
 }
 
 impl TimerGuard {
@@ -126,6 +134,8 @@ fn emit_state(app: &tauri::AppHandle, state: &game::MatchState) {
 fn execute_command(
     app: &tauri::AppHandle,
     match_state: &MatchState,
+    pipeline_state: &VoicePipelineState,
+    timer_state: &TimerHandle,
     cmd: parser::GameCommand,
 ) {
     let state = {
@@ -170,6 +180,21 @@ fn execute_command(
         parser::GameCommand::PauseMatch | parser::GameCommand::ResumeMatch | parser::GameCommand::ResolveChallenge => {
             // no specific sound
         }
+    }
+
+    // HIGH #3: Stop voice pipeline and timer on EndMatch and Restart
+    match cmd {
+        parser::GameCommand::EndMatch => {
+            tracing::info!("[voice] EndMatch via voice — stopping pipeline and timer");
+            stop_listening_inner(pipeline_state);
+            stop_timer(timer_state);
+        }
+        parser::GameCommand::Restart => {
+            tracing::info!("[voice] Restart via voice — stopping pipeline and timer");
+            stop_listening_inner(pipeline_state);
+            stop_timer(timer_state);
+        }
+        _ => {}
     }
 
     emit_state(app, &state);
@@ -264,9 +289,7 @@ fn end_match(
     audio::play_sound(audio::GameSound::WhistleEnd);
 
     // Auto-stop voice pipeline (non-fatal)
-    if let Err(e) = stop_listening(pipeline) {
-        tracing::warn!("[end_match] Failed to stop voice pipeline (non-fatal): {e}");
-    }
+    stop_listening_inner(pipeline.inner());
 
     let state = match_state
         .lock()
@@ -329,7 +352,7 @@ fn restart(
     stop_timer(&timer);
 
     // Stop and restart voice pipeline to prevent mic freeze
-    let _ = stop_listening(pipeline.clone());
+    stop_listening_inner(pipeline.inner());
     let (mic_device, model_str) = {
         let s = settings
             .lock()
@@ -358,7 +381,7 @@ fn restart(
     {
         let mut t = timer
             .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
+            .map_err(|e| format!("Timer poisoned: {e}"))?;
         *t = Some(guard);
     }
 
@@ -553,34 +576,80 @@ fn get_match_state(match_state: State<'_, MatchState>) -> Result<game::MatchStat
 /// Shared logic used by both `start_listening` command and `start_match_cmd`.
 fn start_listening_inner(
     app: &tauri::AppHandle,
-    pipeline: &VoicePipelineState,
+    pipeline_state: &VoicePipelineState,
     device_name: Option<String>,
     model: transcriber::Model,
 ) -> Result<(), String> {
     // Stop any existing pipeline first.
     {
-        let mut guard = pipeline
+        let mut guard = pipeline_state
             .lock()
             .map_err(|e| format!("Lock poisoned: {e}"))?;
         if guard.is_some() {
             let old = guard.take().ok_or("Failed to take old pipeline")?;
-            old.stop().map_err(|e| format!("Failed to stop previous pipeline: {e}"))?;
+            old.pipeline.stop().map_err(|e| format!("Failed to stop previous pipeline: {e}"))?;
         }
     }
 
-    let stream = capture::start_capture(device_name)?;
+    tracing::info!(
+        "[voice] Starting capture: device={}",
+        device_name.as_deref().unwrap_or("default")
+    );
+
+    let stream = match capture::start_capture(device_name) {
+        Ok(s) => {
+            tracing::info!("[voice] ✅ Capture started");
+            s
+        }
+        Err(e) => {
+            tracing::error!("[voice] ❌ Voice pipeline failed: {e}");
+            return Err(e);
+        }
+    };
+
     let audio_buffer = stream.buffer.clone();
 
-    let voice_pipeline = transcriber::VoicePipeline::start(app.clone(), audio_buffer, model)?;
+    let voice_pipeline = match transcriber::VoicePipeline::start(app.clone(), audio_buffer, model) {
+        Ok(p) => {
+            tracing::info!("[voice] ✅ Transcriber started");
+            p
+        }
+        Err(e) => {
+            tracing::error!("[voice] ❌ Voice pipeline failed: {e}");
+            return Err(e);
+        }
+    };
 
     {
-        let mut guard = pipeline
+        let mut guard = pipeline_state
             .lock()
             .map_err(|e| format!("Lock poisoned: {e}"))?;
-        *guard = Some(voice_pipeline);
+        *guard = Some(VoicePipelineHandle {
+            pipeline: voice_pipeline,
+            _stream: stream,
+        });
     }
 
+    tracing::info!("[voice] ✅ Voice pipeline fully operational");
     Ok(())
+}
+
+/// Internal stop helper that takes `&VoicePipelineState` (not State wrapper).
+fn stop_listening_inner(pipeline_state: &VoicePipelineState) {
+    let mut guard = match pipeline_state.lock() {
+        Ok(g) => g,
+        Err(e) => {
+            tracing::warn!("[voice] Pipeline lock poisoned: {e}");
+            return;
+        }
+    };
+    if let Some(handle) = guard.take() {
+        tracing::info!("[voice] Stopping voice pipeline");
+        if let Err(e) = handle.pipeline.stop() {
+            tracing::warn!("[voice] Failed to stop pipeline: {e}");
+        }
+        // handle._stream dropped here — stops capture cleanly
+    }
 }
 
 #[tauri::command]
@@ -595,12 +664,7 @@ fn start_listening(
 
 #[tauri::command]
 fn stop_listening(pipeline: State<'_, VoicePipelineState>) -> Result<(), String> {
-    let mut guard = pipeline
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?;
-    if let Some(p) = guard.take() {
-        p.stop().map_err(|e| format!("Failed to stop pipeline: {e}"))?;
-    }
+    stop_listening_inner(pipeline.inner());
     Ok(())
 }
 
@@ -766,6 +830,7 @@ fn list_model_categories() -> Vec<serde_json::Value> {
 
 fn setup_voice_to_game(app: &tauri::AppHandle) {
     let app_handle = app.clone();
+    tracing::info!("[voice-setup] Event listener registered for voice_text");
     app.listen("voice_text", move |event: tauri::Event| {
         let text = event.payload();
 
@@ -783,9 +848,11 @@ fn setup_voice_to_game(app: &tauri::AppHandle) {
         // Parse command
         match parser::parse_command(&trimmed) {
             Some(cmd) => {
-                tracing::info!("[voice→game] Recognised: {cmd:?}");
+                tracing::info!("[voice→game] Parsed command: {cmd:?}");
                 let match_state: MatchState = app_handle.state::<MatchState>().inner().clone();
-                execute_command(&app_handle, &match_state, cmd);
+                let pipeline_state = app_handle.state::<VoicePipelineState>().inner();
+                let timer_state = app_handle.state::<TimerHandle>().inner();
+                execute_command(&app_handle, &match_state, pipeline_state, timer_state, cmd);
             }
             None => {
                 tracing::info!("[voice→game] Unknown command: \"{trimmed}\"");
@@ -812,7 +879,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(settings)
         .manage(match_state)
-        .manage(Mutex::new(None::<transcriber::VoicePipeline>))
+        .manage(Mutex::new(None::<VoicePipelineHandle>))
         .manage(Mutex::new(None::<TimerGuard>))
         .setup(|app| {
             setup_voice_to_game(&app.handle().clone());

@@ -5,8 +5,10 @@
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use cpal::traits::{DeviceTrait as _, HostTrait as _, StreamTrait as _};
 
@@ -17,6 +19,9 @@ const TARGET_SAMPLE_RATE: u32 = 16_000;
 
 /// Ring-buffer capacity: ~5 seconds of audio at 16 kHz.
 const BUFFER_CAPACITY: usize = TARGET_SAMPLE_RATE as usize * 5;
+
+/// Timeout for stream creation inside the capture thread.
+const STREAM_READY_TIMEOUT_SECS: u64 = 5;
 
 // ── Public types ─────────────────────────────────────────────────────────
 
@@ -40,13 +45,11 @@ pub struct AudioStream {
 
 impl Drop for AudioStream {
     fn drop(&mut self) {
+        tracing::info!("[capture] Dropping AudioStream — signalling shutdown");
         self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.thread_handle.take() {
-            match handle.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => tracing::warn!("[capture] Thread error on drop: {e}"),
-                Err(_) => tracing::warn!("[capture] Capture thread panicked during drop"),
-            }
+            // Use detached pattern to avoid blocking Drop
+            std::mem::forget(handle);
         }
     }
 }
@@ -74,6 +77,10 @@ pub fn list_microphone() -> Vec<DeviceResult> {
 /// Returns an [`AudioStream`] whose `.buffer` field can be read from
 /// any thread. The stream is automatically stopped when the `AudioStream`
 /// is dropped.
+///
+/// This function now waits for the capture thread to confirm that the
+/// audio stream was successfully created before returning Ok. It also
+/// validates sample rate support and resamples when necessary.
 pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String> {
     let host = cpal::default_host();
     let device = match &device_name {
@@ -87,7 +94,7 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
         .name()
         .unwrap_or_else(|_| "<unnamed>".to_string());
 
-    tracing::info!("[capture] Capturing from: {device_label}");
+    tracing::info!("[capture] Device selected: {device_label}");
 
     let supported = device
         .supported_input_configs()
@@ -99,17 +106,49 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
             )
         })?;
 
-    let channels = supported.channels() as f32;
+    let channels = supported.channels();
+    tracing::info!(
+        "[capture] Supported config: F32, channels={channels}, rate={}-{}",
+        supported.min_sample_rate().0,
+        supported.max_sample_rate().0,
+    );
 
-    let config: cpal::StreamConfig = supported.with_sample_rate(cpal::SampleRate(TARGET_SAMPLE_RATE)).into();
+    // Determine actual sample rate: use 16kHz if supported, otherwise use nearest
+    let actual_rate = if supported.min_sample_rate().0 <= TARGET_SAMPLE_RATE
+        && supported.max_sample_rate().0 >= TARGET_SAMPLE_RATE
+    {
+        TARGET_SAMPLE_RATE
+    } else {
+        // Use closest rate to target
+        let min = supported.min_sample_rate().0;
+        let max = supported.max_sample_rate().0;
+        if TARGET_SAMPLE_RATE < min {
+            min
+        } else {
+            max
+        }
+    };
+
+    let needs_resample = actual_rate != TARGET_SAMPLE_RATE;
+    tracing::info!(
+        "[capture] Using sample rate: {actual_rate} (resample={needs_resample})"
+    );
+
+    let config: cpal::StreamConfig = supported
+        .with_sample_rate(cpal::SampleRate(actual_rate))
+        .into();
 
     let buffer: AudioBuffer = Arc::new(Mutex::new(VecDeque::with_capacity(BUFFER_CAPACITY)));
     let shutdown = Arc::new(AtomicBool::new(false));
+
+    // Channel for the capture thread to signal stream creation success/failure
+    let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
 
     let buf_clone = buffer.clone();
     let shutdown_for_cb = shutdown.clone();
     let shutdown_for_thread = shutdown.clone();
     let device_label_clone = device_label.clone();
+    let actual_rate_for_cb = actual_rate;
 
     // Stream must be created and held inside the thread (cpal::Stream is !Send).
     let handle = thread::Builder::new()
@@ -126,10 +165,14 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
                         // Mix channels down to mono and resample.
                         let mono: Vec<f32> = data
                             .chunks_exact(channels as usize)
-                            .map(|frame| frame.iter().sum::<f32>() / channels)
+                            .map(|frame| frame.iter().sum::<f32>() / channels as f32)
                             .collect();
 
-                        let resampled = resample(&mono, TARGET_SAMPLE_RATE, TARGET_SAMPLE_RATE);
+                        let resampled = if needs_resample {
+                            resample(&mono, actual_rate_for_cb, TARGET_SAMPLE_RATE)
+                        } else {
+                            mono
+                        };
 
                         let mut buf = match buf_clone.lock() {
                             Ok(b) => b,
@@ -138,6 +181,18 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
                                 return;
                             }
                         };
+
+                        let buf_len = buf.len();
+                        tracing::trace!(
+                            "[capture] Audio frame: {} samples, buffer={buf_len}",
+                            resampled.len()
+                        );
+                        if buf_len > (BUFFER_CAPACITY * 80 / 100) {
+                            tracing::warn!(
+                                "[capture] ⚠️ Buffer near capacity: {buf_len}/{BUFFER_CAPACITY}"
+                            );
+                        }
+
                         for s in resampled {
                             if buf.len() >= BUFFER_CAPACITY {
                                 buf.pop_front();
@@ -146,24 +201,48 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
                         }
                     },
                     move |err| {
-                        tracing::warn!("[capture] Input stream error on {device_label_clone}: {err}");
+                        tracing::warn!("[capture] Stream error on {device_label_clone}: {err}");
                     },
                     None,
                 )
                 .map_err(|e| format!("Failed to build input stream: {e}"))?;
 
+            tracing::info!("[capture] Stream created successfully");
+
             stream
                 .play()
                 .map_err(|e| format!("Failed to start input stream: {e}"))?;
 
+            // Signal success to the caller
+            let _ = ready_tx.send(Ok(()));
+            tracing::info!("[capture] ✅ Ready — capturing audio");
+
             // Keep stream alive until shutdown.
             while !shutdown_for_thread.load(Ordering::SeqCst) {
-                thread::sleep(std::time::Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(100));
             }
             drop(stream);
             Ok(())
         })
         .map_err(|e| format!("Failed to spawn capture thread: {e}"))?;
+
+    // Wait for the stream to be created successfully (with timeout)
+    match ready_rx.recv_timeout(Duration::from_secs(STREAM_READY_TIMEOUT_SECS)) {
+        Ok(Ok(())) => {
+            tracing::info!("[capture] ✅ Capture thread confirmed stream is running");
+        }
+        Ok(Err(e)) => {
+            // Thread sent an error — join to clean up
+            let _ = handle.join();
+            return Err(format!("Stream creation failed: {e}"));
+        }
+        Err(_) => {
+            tracing::error!("[capture] ❌ Stream creation failed or timed out ({STREAM_READY_TIMEOUT_SECS}s)");
+            return Err(format!(
+                "Capture stream did not start within {STREAM_READY_TIMEOUT_SECS}s"
+            ));
+        }
+    }
 
     Ok(AudioStream {
         buffer,

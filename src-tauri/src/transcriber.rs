@@ -5,8 +5,10 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use strum_macros::EnumIter;
@@ -21,6 +23,9 @@ use crate::capture::AudioBuffer;
 const CHUNK_SECS: f32 = buffer::DEFAULT_CHUNK_SECS;
 const OVERLAP_SECS: f32 = buffer::DEFAULT_OVERLAP_SECS;
 const LOOP_INTERVAL_MS: u64 = 500;
+
+/// Timeout for model loading in the transcription thread.
+const MODEL_LOAD_TIMEOUT_SECS: u64 = 30;
 
 // ── Model definitions ────────────────────────────────────────────────────
 
@@ -213,11 +218,25 @@ pub fn load_context(model: &Model) -> anyhow::Result<WhisperContext> {
     if !path.exists() {
         anyhow::bail!("Model {:?} is not downloaded at {:?}", model, path);
     }
+    tracing::info!(
+        "[transcriber] Loading model {:?} from {}",
+        model,
+        path.display()
+    );
     let path_str = path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Model path contains invalid UTF-8"))?;
     let ctx = WhisperContext::new_with_params(path_str, WhisperContextParameters::default())
         .map_err(|e| anyhow::anyhow!("Failed to load Whisper model: {e}"))?;
+
+    // Report model size
+    if let Ok(meta) = std::fs::metadata(&path) {
+        let size_mb = meta.len() / (1024 * 1024);
+        tracing::info!("[transcriber] ✅ Model loaded ({size_mb}MB)");
+    } else {
+        tracing::info!("[transcriber] ✅ Model loaded");
+    }
+
     Ok(ctx)
 }
 
@@ -225,7 +244,8 @@ pub fn load_context(model: &Model) -> anyhow::Result<WhisperContext> {
 
 /// Handle to the running transcription loop.
 ///
-/// Dropping this value will signal the background thread to stop and join it.
+/// Dropping this value will signal the background thread to stop.
+/// Uses detached pattern to avoid blocking Drop.
 pub struct VoicePipeline {
     shutdown: Arc<AtomicBool>,
     thread_handle: Option<JoinHandle<Result<(), String>>>,
@@ -238,6 +258,9 @@ impl VoicePipeline {
     /// 1. Loads the WhisperContext **once**.
     /// 2. Repeatedly extracts chunks from `buffer` and runs inference.
     /// 3. Emits `"voice_text"` Tauri events with recognised text.
+    ///
+    /// This now waits for model loading confirmation with a timeout.
+    /// Returns Err if the model fails to load.
     pub fn start(
         app_handle: AppHandle,
         audio_buffer: AudioBuffer,
@@ -245,13 +268,39 @@ impl VoicePipeline {
     ) -> Result<Self, String> {
         let shutdown = Arc::new(AtomicBool::new(false));
 
+        // Channel to get model-load success/failure
+        let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
+
         let shutdown_clone = shutdown.clone();
         let handle = thread::Builder::new()
             .name("whisper-transcriber".into())
             .spawn(move || -> Result<(), String> {
-                run_loop(app_handle, audio_buffer, model, &shutdown_clone)
+                run_loop(app_handle, audio_buffer, model, &shutdown_clone, ready_tx)
             })
             .map_err(|e| format!("Failed to spawn transcription thread: {e}"))?;
+
+        // Wait for model to load (with timeout)
+        match ready_rx.recv_timeout(Duration::from_secs(MODEL_LOAD_TIMEOUT_SECS)) {
+            Ok(Ok(())) => {
+                tracing::info!("[transcriber] ✅ Transcriber confirmed ready");
+            }
+            Ok(Err(e)) => {
+                // Model load failed — join thread to clean up
+                let _ = handle.join();
+                return Err(format!("Model load failed: {e}"));
+            }
+            Err(_) => {
+                tracing::error!(
+                    "[transcriber] ❌ Model load timed out or channel disconnected ({}s)",
+                    MODEL_LOAD_TIMEOUT_SECS
+                );
+                // Thread might still be loading — just detach it (shutdown will clean up)
+                std::mem::forget(handle);
+                return Err(format!(
+                    "Model did not load within {MODEL_LOAD_TIMEOUT_SECS}s"
+                ));
+            }
+        }
 
         Ok(Self {
             shutdown,
@@ -265,11 +314,11 @@ impl VoicePipeline {
         self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.thread_handle.take() {
             let (tx, rx) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
+            thread::spawn(move || {
                 let _ = handle.join();
                 let _ = tx.send(());
             });
-            match rx.recv_timeout(std::time::Duration::from_secs(3)) {
+            match rx.recv_timeout(Duration::from_secs(3)) {
                 Ok(()) => {}
                 Err(_) => tracing::warn!("[transcriber] Thread join timed out — detached"),
             }
@@ -280,13 +329,11 @@ impl VoicePipeline {
 
 impl Drop for VoicePipeline {
     fn drop(&mut self) {
+        tracing::info!("[transcriber] Dropping VoicePipeline — signalling shutdown");
         self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.thread_handle.take() {
-            match handle.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => tracing::warn!("[transcriber] Thread error on drop: {e}"),
-                Err(_) => tracing::warn!("[transcriber] Transcription thread panicked during drop"),
-            }
+            // Detach — stop() should have already been called with timeout before
+            std::mem::forget(handle);
         }
     }
 }
@@ -297,32 +344,74 @@ fn run_loop(
     audio_buffer: AudioBuffer,
     model: Model,
     shutdown: &AtomicBool,
+    ready_tx: mpsc::Sender<Result<(), String>>,
 ) -> Result<(), String> {
-    tracing::info!("[transcriber] Loading model {:?}…", model);
-    let ctx = load_context(&model)
-        .map_err(|e| format!("Failed to load model: {e}"))?;
+    let ctx = match load_context(&model) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            let err_msg = format!("Model load failed: {e}");
+            tracing::error!("[transcriber] ❌ {err_msg}");
+            let _ = ready_tx.send(Err(err_msg));
+            return Err(format!("Failed to load model: {e}"));
+        }
+    };
+
     let mut state = ctx
         .create_state()
-        .map_err(|e| format!("Failed to create Whisper state: {e}"))?;
+        .map_err(|e| {
+            let err_msg = format!("Failed to create Whisper state: {e}");
+            let _ = ready_tx.send(Err(err_msg.clone()));
+            err_msg
+        })?;
 
     let language = model.default_language();
 
-    tracing::info!("[transcriber] Model loaded (language={language}). Starting transcription loop.");
+    // Signal success — model is loaded and ready
+    let _ = ready_tx.send(Ok(()));
+    tracing::info!(
+        "[transcriber] ✅ Ready — transcription loop running (lang={language})"
+    );
 
     while !shutdown.load(Ordering::SeqCst) {
-        thread::sleep(std::time::Duration::from_millis(LOOP_INTERVAL_MS));
+        thread::sleep(Duration::from_millis(LOOP_INTERVAL_MS));
+
+        // Log buffer status
+        let buf_len = audio_buffer
+            .lock()
+            .map(|b| b.len())
+            .unwrap_or(0);
+        let min_samples = (CHUNK_SECS * 16_000.0) as usize;
+        tracing::trace!(
+            "[transcriber] Buffer has {buf_len} samples (need {min_samples} for chunk)"
+        );
 
         let chunk = match buffer::extract_chunk(&audio_buffer, CHUNK_SECS, OVERLAP_SECS) {
             Some(c) => c,
             None => continue,
         };
 
+        tracing::info!(
+            "[transcriber] Extracted chunk: {} samples",
+            chunk.len()
+        );
+
         let params = build_params(language);
+
+        tracing::info!(
+            "[transcriber] Inference started (chunk={} samples, lang={language})",
+            chunk.len()
+        );
+        let start = Instant::now();
 
         if let Err(e) = state.full(params, &chunk) {
             tracing::warn!("[transcriber] Inference error: {e}");
             continue;
         }
+
+        let elapsed_ms = start.elapsed().as_millis();
+        tracing::info!(
+            "[transcriber] Inference completed in {elapsed_ms}ms"
+        );
 
         let text = match extract_text(&state) {
             Ok(t) => t,
@@ -334,12 +423,14 @@ fn run_loop(
 
         let trimmed = text.trim();
         if trimmed.is_empty() {
+            tracing::trace!("[transcriber] Empty result from inference (silence?)");
             continue;
         }
 
-        tracing::info!("[transcriber] Recognised: \"{trimmed}\"");
+        tracing::info!("[transcriber] ✅ Recognised: \"{trimmed}\"");
 
-        if let Err(e) = app_handle.emit("voice_text", trimmed) {
+        // Emit as JSON object — frontend expects { "text": "..." }
+        if let Err(e) = app_handle.emit("voice_text", serde_json::json!({ "text": trimmed })) {
             tracing::warn!("[transcriber] Failed to emit event: {e}");
         }
     }
