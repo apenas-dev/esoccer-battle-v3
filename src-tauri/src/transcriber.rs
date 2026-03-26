@@ -112,7 +112,7 @@ impl Model {
     }
 
     pub fn default_model() -> Self {
-        Self::MediumWhisper
+        Self::SmallWhisper
     }
 
     pub fn recommended_models() -> Vec<Self> {

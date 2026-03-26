@@ -27,8 +27,8 @@ export function ModelDownloader({
   onSelect,
   onDownload,
 }: ModelDownloaderProps) {
-  // Mostrar APENAS MediumWhisper
-  const filteredModels = models.filter((m) => m.type === 'MediumWhisper');
+  // Mostrar APENAS SmallWhisper
+  const filteredModels = models.filter((m) => m.type === 'SmallWhisper');
 
   return (
     <SettingsCard title="Modelo Whisper" icon="📥">
