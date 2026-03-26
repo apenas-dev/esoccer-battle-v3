@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { createSTTProvider, type STTProviderName } from '../services/stt';
 
 export interface VoiceCommandState {
@@ -14,39 +14,78 @@ const idleState: VoiceCommandState = {
 };
 
 export function useVoiceCommands(
-  shouldListen: boolean,
   preference?: STTProviderName,
-): VoiceCommandState {
+): VoiceCommandState & {
+  startListening: () => void;
+  stopListening: () => Promise<string>;
+} {
   const [state, setState] = useState<VoiceCommandState>(idleState);
-  useEffect(() => {
-    const provider = createSTTProvider(preference);
+  const providerRef = useRef<ReturnType<typeof createSTTProvider> | null>(null);
+  const resolveRef = useRef<((text: string) => void) | null>(null);
 
+  // Create provider once on mount
+  useEffect(() => {
+    providerRef.current = createSTTProvider(preference);
     setState((prev) => ({
       ...prev,
-      isListening: shouldListen && provider.isAvailable(),
-      providerName: provider.name,
+      providerName: providerRef.current!.name,
     }));
+    return () => {
+      providerRef.current?.stop();
+      providerRef.current = null;
+    };
+  }, [preference]);
 
-    if (!provider.isAvailable()) return;
+  const startListening = useCallback(() => {
+    const provider = providerRef.current;
+    if (!provider || !provider.isAvailable()) return;
 
-    const unsubResult = provider.onResult((text) => {
-      setState((prev) => ({ ...prev, lastText: text }));
+    // Subscribe to results
+    const unsubResult = provider.onResult((text, isFinal) => {
+      if (isFinal && resolveRef.current) {
+        resolveRef.current(text);
+        resolveRef.current = null;
+      }
+      if (isFinal) {
+        setState((prev) => ({ ...prev, lastText: text }));
+      }
     });
 
     const unsubError = provider.onError((error) => {
       console.error(`[STT:${provider.name}]`, error);
+      // On error, resolve with empty so the stop promise doesn't hang
+      if (resolveRef.current) {
+        resolveRef.current('');
+        resolveRef.current = null;
+      }
     });
 
-    if (shouldListen) {
-      provider.start({ language: 'pt-BR', continuous: false });
-    }
+    provider.start({ language: 'pt-BR', continuous: false });
 
-    return () => {
+    setState((prev) => ({ ...prev, isListening: true }));
+
+    // Store unsub functions for cleanup on stop
+    providerRef.current = Object.assign(provider, { _unsubs: [unsubResult, unsubError] } as never);
+  }, []);
+
+  const stopListening = useCallback((): Promise<string> => {
+    return new Promise((resolve) => {
+      const provider = providerRef.current;
+      if (!provider) {
+        resolve('');
+        return;
+      }
+
+      resolveRef.current = resolve;
+
+      // Clean up subscriptions
+      const extended = provider as unknown as { _unsubs?: Array<() => void> };
+      extended._unsubs?.forEach((fn) => fn());
+
       provider.stop();
-      unsubResult();
-      unsubError();
-    };
-  }, [shouldListen, preference]);
+      setState((prev) => ({ ...prev, isListening: false }));
+    });
+  }, []);
 
-  return state;
+  return { ...state, startListening, stopListening };
 }

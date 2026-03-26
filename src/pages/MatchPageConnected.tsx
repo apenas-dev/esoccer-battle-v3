@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useMatchState } from '../hooks/useMatchState';
 import { useVoiceCommands } from '../hooks/useVoiceCommands';
@@ -33,44 +33,54 @@ interface MatchPageConnectedProps {
 
 export function MatchPageConnected({ onNavigateSettings, onNavigateHelp, onNavigateHistory }: MatchPageConnectedProps) {
   const { matchState, startMatch, endMatch, goalA, goalB, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, restart, setScoreA, setScoreB } = useMatchState();
-  const voice = useVoiceCommands(matchState.status === 'playing');
+  // ── Voice: PTT using STT provider (WebSpeech or Whisper) ──
+  const voice = useVoiceCommands();
+  const [pttState, setPttState] = useState<'idle' | 'recording' | 'processing'>('idle');
 
-  const uiStatus = mapStatus(matchState.status);
-
-  // ── Push-to-Talk state machine ──────────────────────
-  const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'processing'>('idle');
-
+  // When using Tauri/Whisper, listen to recording state events for UI sync
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     onRecordingState((payload: RecordingStatePayload) => {
-      setRecordingState(payload.status);
+      // Only update PTT state if we're using whisper (non-web-speech)
+      if (voice.providerName !== 'web-speech') {
+        setPttState(payload.status);
+      }
     }).then((fn) => { unlisten = fn; });
     return () => { unlisten?.(); };
-  }, []);
+  }, [voice.providerName]);
 
-  const voiceState: VoiceState = recordingState === 'recording' ? 'listening'
-    : recordingState === 'processing' ? 'processing'
+  const voiceState: VoiceState = pttState === 'recording' ? 'listening'
+    : pttState === 'processing' ? 'processing'
     : 'idle';
 
-  const handleMicClick = useCallback(async () => {
-    if (recordingState === 'idle') {
-      try { await startRecording(); } catch (e) { console.error('startRecording failed:', e); }
-    } else if (recordingState === 'recording') {
-      try { await stopRecordingAndTranscribe(); } catch (e) { console.error('stopRecordingAndTranscribe failed:', e); }
-    }
-    // processing → ignored (button disabled)
-  }, [recordingState]);
+  const uiStatus = mapStatus(matchState.status);
 
   const [commands, setCommands] = useCommandLog();
-  const prevVoiceTextRef = useRef('');
 
-  // Log comandos de voz no CommandLog
-  useEffect(() => {
-    if (voice.lastText && voice.lastText !== prevVoiceTextRef.current) {
-      prevVoiceTextRef.current = voice.lastText;
-      addCommand(setCommands, `🎤 "${voice.lastText}"`, 'voice');
+  const handleMicClick = useCallback(async () => {
+    if (pttState === 'idle') {
+      setPttState('recording');
+      if (voice.providerName === 'web-speech') {
+        voice.startListening();
+      } else {
+        try { await startRecording(); } catch (e) { console.error('startRecording failed:', e); setPttState('idle'); }
+      }
+    } else if (pttState === 'recording') {
+      setPttState('processing');
+      if (voice.providerName === 'web-speech') {
+        const text = await voice.stopListening();
+        if (text) {
+          addCommand(setCommands, `🎤 "${text}"`, 'voice');
+          // Send text to Tauri backend for command processing
+          const { invoke } = await import('@tauri-apps/api/core').catch(() => ({ invoke: () => Promise.resolve() }));
+          try { await invoke('process_voice_text', { text }); } catch { /* ignore if not available */ }
+        }
+        setPttState('idle');
+      } else {
+        try { await stopRecordingAndTranscribe(); } catch (e) { console.error('stopRecordingAndTranscribe failed:', e); }
+      }
     }
-  }, [voice.lastText, setCommands]);
+  }, [pttState, voice, setCommands]);
 
   const handleStart = useCallback(() => { startMatch(); addCommand(setCommands, 'Partida iniciada'); }, [startMatch, setCommands]);
   const handleEnd = useCallback(() => { endMatch(); addCommand(setCommands, 'Partida encerrada'); }, [endMatch, setCommands]);
@@ -148,7 +158,7 @@ export function MatchPageConnected({ onNavigateSettings, onNavigateHelp, onNavig
           <MatchTimer elapsedSeconds={matchState.elapsed_seconds} isRunning={matchState.status === 'playing'} />
         </section>
         <section aria-label="Indicador de voz">
-          <VoiceIndicator voiceState={voiceState} onClick={handleMicClick} disabled={recordingState === 'processing'} />
+          <VoiceIndicator voiceState={voiceState} onClick={handleMicClick} disabled={pttState === 'processing'} />
           {voice.lastText && (
             <p className="text-xs text-gray-500 text-center mt-1 max-w-xs truncate">
               🎤 &ldquo;{voice.lastText}&rdquo;
