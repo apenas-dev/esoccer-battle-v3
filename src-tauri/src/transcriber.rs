@@ -115,8 +115,14 @@ impl Model {
         Self::MediumWhisper
     }
 
+    pub fn recommended_models() -> Vec<Self> {
+        vec![Self::MediumWhisper, Self::SmallWhisper, Self::BaseWhisper]
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
+            Self::MediumWhisper => "Medium",
+            Self::MediumEnWhisper => "Medium English",
             Self::SmallWhisper => "Small",
             Self::SmallEnWhisper => "Small English",
             Self::TinyWhisper => "Tiny",
@@ -132,6 +138,8 @@ impl Model {
 
     pub fn download_url(&self) -> &'static str {
         match self {
+            Self::MediumWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin?download=true",
+            Self::MediumEnWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin?download=true",
             Self::SmallWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin?download=true",
             Self::SmallEnWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin?download=true",
             Self::TinyWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin?download=true",
@@ -147,6 +155,8 @@ impl Model {
 
     pub fn file_name(&self) -> &'static str {
         match self {
+            Self::MediumWhisper => "medium.bin",
+            Self::MediumEnWhisper => "medium-en.bin",
             Self::SmallWhisper => "small.bin",
             Self::SmallEnWhisper => "small-en.bin",
             Self::TinyWhisper => "tiny.bin",
@@ -162,6 +172,7 @@ impl Model {
 
     pub fn average_memory_usage(&self) -> usize {
         match self {
+            Self::MediumWhisper | Self::MediumEnWhisper => 1500,
             Self::SmallWhisper | Self::SmallEnWhisper => 1000,
             Self::TinyWhisper | Self::TinyEnWhisper | Self::TinyQuantized | Self::TinyEnQuantized => 390,
             Self::BaseWhisper | Self::BaseEnWhisper | Self::BaseQuantized | Self::BaseEnQuantized => 500,
@@ -171,7 +182,7 @@ impl Model {
     /// Returns `"en"` for English-only models, `"pt"` for multilingual ones.
     pub fn default_language(&self) -> &'static str {
         match self {
-            Self::SmallEnWhisper | Self::TinyEnWhisper | Self::TinyEnQuantized
+            Self::MediumEnWhisper | Self::SmallEnWhisper | Self::TinyEnWhisper | Self::TinyEnQuantized
             | Self::BaseEnWhisper | Self::BaseEnQuantized => "en",
             _ => "pt",
         }
@@ -189,6 +200,7 @@ impl Model {
 
     pub fn disk_usage(&self) -> usize {
         match self {
+            Self::MediumWhisper | Self::MediumEnWhisper => 1524,
             Self::SmallWhisper | Self::SmallEnWhisper => 491,
             Self::TinyWhisper | Self::TinyEnWhisper => 77,
             Self::TinyQuantized | Self::TinyEnQuantized => 33,
@@ -207,7 +219,7 @@ impl Model {
 
     pub fn category(&self) -> Category {
         match self {
-            Self::SmallWhisper | Self::BaseWhisper => Category::Recommended,
+            Self::MediumWhisper | Self::SmallWhisper | Self::BaseWhisper => Category::Recommended,
             _ => Category::Other,
         }
     }
