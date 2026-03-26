@@ -3,9 +3,11 @@
 use std::io::Write as _;
 use tauri::Emitter as _;
 
+mod audio;
 mod buffer;
 mod configuration;
 mod capture;
+mod parser;
 mod transcriber;
 
 type Settings = std::sync::Arc<std::sync::Mutex<configuration::AppSettings>>;
