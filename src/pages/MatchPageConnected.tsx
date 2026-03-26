@@ -7,7 +7,7 @@ import { MatchTimer } from '../components/match/MatchTimer';
 import { VoiceIndicator, type VoiceState } from '../components/match/VoiceIndicator';
 import { CommandLog, type CommandEntry } from '../components/match/CommandLog';
 import { MatchControls } from '../components/match/MatchControls';
-import { startRecording, stopRecordingAndTranscribe, onRecordingState, type RecordingStatePayload } from '../lib/tauri';
+import { startRecording, stopRecordingAndTranscribe, onRecordingState, type RecordingStatePayload, getSettings, setSettings } from '../lib/tauri';
 import { generateId } from '../lib/utils';
 import { type MatchStatus } from '../lib/types';
 
@@ -28,9 +28,10 @@ function addCommand(setter: React.Dispatch<React.SetStateAction<CommandEntry[]>>
 interface MatchPageConnectedProps {
   onNavigateSettings?: () => void;
   onNavigateHelp?: () => void;
+  onNavigateHistory?: () => void;
 }
 
-export function MatchPageConnected({ onNavigateSettings, onNavigateHelp }: MatchPageConnectedProps) {
+export function MatchPageConnected({ onNavigateSettings, onNavigateHelp, onNavigateHistory }: MatchPageConnectedProps) {
   const { matchState, startMatch, endMatch, goalA, goalB, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, restart, setScoreA, setScoreB } = useMatchState();
   const voice = useVoiceCommands(matchState.status === 'playing');
 
@@ -83,6 +84,15 @@ export function MatchPageConnected({ onNavigateSettings, onNavigateHelp }: Match
   const handleScoreBChange = useCallback((newScore: number) => { setScoreB(newScore); }, [setScoreB]);
   const handleChallenge = useCallback(() => { challenge(); addCommand(setCommands, '❓ Dúvida', 'challenge'); }, [challenge, setCommands]);
   const handleResolveChallenge = useCallback(() => { resolveChallenge(); addCommand(setCommands, '✅ Dúvida resolvida', 'challenge'); }, [resolveChallenge, setCommands]);
+  const handleTeamNameChange = useCallback(async (team: 'a' | 'b', value: string) => {
+    try {
+      const settings = await getSettings();
+      const updated = team === 'a'
+        ? { ...settings, team_a_name: value }
+        : { ...settings, team_b_name: value };
+      await setSettings(updated);
+    } catch (e) { console.error('Failed to save team name:', e); }
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#0a0f1a] text-white flex flex-col items-center px-4 py-6 sm:px-6 sm:py-8">
@@ -98,6 +108,15 @@ export function MatchPageConnected({ onNavigateSettings, onNavigateHelp }: Match
             aria-label="Ajuda"
           >
             ❓
+          </button>
+        )}
+        {onNavigateHistory && (
+          <button
+            onClick={onNavigateHistory}
+            className="text-gray-500 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-gray-800"
+            aria-label="Histórico"
+          >
+            📋
           </button>
         )}
         {onNavigateSettings && (
@@ -119,6 +138,8 @@ export function MatchPageConnected({ onNavigateSettings, onNavigateHelp }: Match
             scoreA={matchState.score_a}
             scoreB={matchState.score_b}
             status={uiStatus}
+            canEditNames={matchState.status === 'idle'}
+            onTeamNameChange={handleTeamNameChange}
             onScoreAChange={handleScoreAChange}
             onScoreBChange={handleScoreBChange}
           />

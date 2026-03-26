@@ -13,6 +13,12 @@ const SettingsPage = lazy(() =>
     : Promise.resolve({ default: () => <></> })
 );
 
+const HistoryPage = lazy(() =>
+  isTauri()
+    ? import('./pages/HistoryPage').then((m) => ({ default: m.HistoryPage }))
+    : Promise.resolve({ default: () => <></> })
+);
+
 const HelpPage = lazy(() =>
   isTauri()
     ? import('./pages/HelpPage').then((m) => ({ default: m.HelpPage }))
@@ -27,7 +33,7 @@ function Fallback() {
   );
 }
 
-type Page = 'match' | 'settings' | 'help';
+type Page = 'match' | 'settings' | 'help' | 'history';
 
 export function App() {
   const [page, setPage] = useState<Page>('match');
@@ -48,9 +54,12 @@ export function App() {
         <MatchPageConnected
           onNavigateSettings={() => setPage('settings')}
           onNavigateHelp={() => setPage('help')}
+          onNavigateHistory={() => setPage('history')}
         />
       ) : page === 'help' ? (
         <HelpPage onBack={() => setPage('match')} />
+      ) : page === 'history' ? (
+        <HistoryPage onBack={() => setPage('match')} />
       ) : (
         <SettingsPage onBack={() => setPage('match')} />
       )}

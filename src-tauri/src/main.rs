@@ -977,8 +977,8 @@ fn download_model(app: tauri::AppHandle, model: transcriber::Model) -> Result<St
 
         drop(file);
 
-        // Verify file size
-        let min_size = (model.disk_usage() * 1_000_000) as u64;
+        // Verify file size (5% tolerance for rounding / gzip differences)
+        let min_size = ((model.disk_usage() * 1_000_000) as f64 * 0.95) as u64;
         match std::fs::metadata(model.path()) {
             Ok(meta) if meta.len() >= min_size => {}
             Ok(meta) => {
