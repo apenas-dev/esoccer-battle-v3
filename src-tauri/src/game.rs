@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 // ── Types ────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum MatchStatus {
     Idle,
     Playing,

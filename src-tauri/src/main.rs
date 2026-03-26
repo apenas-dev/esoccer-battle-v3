@@ -81,7 +81,7 @@ fn spawn_timer(app: tauri::AppHandle, match_state: MatchState) -> TimerGuard {
                     state.elapsed_seconds
                 };
 
-                if let Err(e) = app.emit("timer_tick", elapsed) {
+                if let Err(e) = app.emit("timer_tick", serde_json::json!({ "elapsed_seconds": elapsed })) {
                     tracing::warn!("[timer] Failed to emit: {e}");
                 }
 
@@ -172,7 +172,7 @@ fn execute_command(
 // ── Tauri commands ───────────────────────────────────────────────────────
 
 #[tauri::command]
-fn start_match_cmd(
+fn start_match(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
     timer: State<'_, TimerHandle>,
@@ -239,7 +239,7 @@ fn start_match_cmd(
 }
 
 #[tauri::command]
-fn end_match_cmd(
+fn end_match(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
     timer: State<'_, TimerHandle>,
@@ -269,7 +269,7 @@ fn end_match_cmd(
 }
 
 #[tauri::command]
-fn goal_a_cmd(
+fn goal_a(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
 ) -> Result<(), String> {
@@ -290,7 +290,7 @@ fn goal_a_cmd(
 }
 
 #[tauri::command]
-fn goal_b_cmd(
+fn goal_b(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
 ) -> Result<(), String> {
@@ -311,7 +311,7 @@ fn goal_b_cmd(
 }
 
 #[tauri::command]
-fn restart_cmd(
+fn restart(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
     timer: State<'_, TimerHandle>,
@@ -344,7 +344,7 @@ fn restart_cmd(
 }
 
 #[tauri::command]
-fn challenge_cmd(
+fn challenge(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
 ) -> Result<(), String> {
@@ -365,7 +365,7 @@ fn challenge_cmd(
 }
 
 #[tauri::command]
-fn resolve_challenge_cmd(
+fn resolve_challenge(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
     timer: State<'_, TimerHandle>,
@@ -626,14 +626,11 @@ fn setup_voice_to_game(app: &tauri::AppHandle) {
     app.listen("voice_text", move |event: tauri::Event| {
         let text = event.payload();
 
-        // Trim JSON string quotes if present (Tauri event payload is a string)
-        let text = text
-            .strip_prefix('"')
-            .and_then(|t| t.strip_suffix('"'))
-            .unwrap_or(text)
-            .to_string();
-
-        let trimmed = text.trim().to_string();
+        // Parse JSON payload: {"text": "..."}
+        let trimmed = match serde_json::from_str::<serde_json::Value>(text) {
+            Ok(v) => v["text"].as_str().unwrap_or("").trim().to_string(),
+            Err(_) => text.trim().to_string(),
+        };
         if trimmed.is_empty() {
             return;
         }
@@ -649,7 +646,7 @@ fn setup_voice_to_game(app: &tauri::AppHandle) {
             }
             None => {
                 tracing::info!("[voice→game] Unknown command: \"{trimmed}\"");
-                if let Err(e) = app_handle.emit("command_unknown", &trimmed) {
+                if let Err(e) = app_handle.emit("command_unknown", serde_json::json!({ "text": trimmed })) {
                     tracing::warn!("Failed to emit command_unknown: {e}");
                 }
             }
@@ -660,6 +657,8 @@ fn setup_voice_to_game(app: &tauri::AppHandle) {
 // ── Main ─────────────────────────────────────────────────────────────────
 
 fn main() {
+    tracing_subscriber::fmt::init();
+
     let settings: Settings =
         Arc::new(Mutex::new(configuration::AppSettings::load_or_default()));
 
@@ -677,13 +676,13 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            start_match_cmd,
-            end_match_cmd,
-            goal_a_cmd,
-            goal_b_cmd,
-            restart_cmd,
-            challenge_cmd,
-            resolve_challenge_cmd,
+            start_match,
+            end_match,
+            goal_a,
+            goal_b,
+            restart,
+            challenge,
+            resolve_challenge,
             get_match_state,
             start_listening,
             stop_listening,

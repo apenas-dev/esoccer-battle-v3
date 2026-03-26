@@ -285,7 +285,7 @@ fn run_loop(
 
         tracing::info!("[transcriber] Recognised: \"{trimmed}\"");
 
-        if let Err(e) = app_handle.emit("voice_text", trimmed) {
+        if let Err(e) = app_handle.emit("voice_text", serde_json::json!({ "text": trimmed })) {
             tracing::warn!("[transcriber] Failed to emit event: {e}");
         }
     }
