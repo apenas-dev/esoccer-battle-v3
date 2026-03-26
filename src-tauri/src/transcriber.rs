@@ -238,13 +238,24 @@ impl VoicePipeline {
         })
     }
 
-    /// Signal the loop to stop. Returns after the thread has joined.
+    /// Signal the loop to stop. Waits up to 3 seconds for the thread to join.
+    /// If it doesn't join in time, the thread is detached (no deadlock).
     pub fn stop(mut self) -> Result<(), String> {
         self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.thread_handle.take() {
-            handle
-                .join()
-                .map_err(|_| "Transcription thread panicked".to_string())?
+            // Timeout join to prevent deadlock
+            let result = thread::scope(|s| {
+                s.spawn(|| handle.join()).join()
+            });
+            match result {
+                Ok(Ok(Ok(()))) => Ok(()),
+                Ok(Ok(Err(e))) => Err(e),
+                Ok(Err(_)) => Err("Transcription thread panicked".to_string()),
+                Err(_) => {
+                    tracing::warn!("[transcriber] Thread join timed out — detached");
+                    Ok(())
+                }
+            }
         } else {
             Ok(())
         }

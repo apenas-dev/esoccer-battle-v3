@@ -315,8 +315,27 @@ fn restart(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
     timer: State<'_, TimerHandle>,
+    pipeline: State<'_, VoicePipelineState>,
+    settings: State<'_, Settings>,
 ) -> Result<(), String> {
     stop_timer(&timer);
+
+    // Stop and restart voice pipeline to prevent mic freeze
+    let _ = stop_listening(pipeline.clone());
+    let (mic_device, model_str) = {
+        let s = settings
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        (s.mic_device.clone(), s.model.clone())
+    };
+    match serde_json::from_value::<transcriber::Model>(serde_json::json!(model_str)) {
+        Ok(model) if model.is_downloaded() => {
+            if let Err(e) = start_listening_inner(&app, pipeline.inner(), mic_device, model) {
+                tracing::warn!("[restart] Failed to restart voice pipeline: {e}");
+            }
+        }
+        _ => {}
+    }
 
     {
         let mut state = match_state
@@ -331,7 +350,7 @@ fn restart(
     {
         let mut t = timer
             .lock()
-            .map_err(|e| format!("Timer lock poisoned: {e}"))?;
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
         *t = Some(guard);
     }
 
