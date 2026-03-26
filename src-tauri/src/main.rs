@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::io::Write as _;
+use tauri::Emitter as _;
+
 mod configuration;
 mod recorder;
 mod transcriber;
@@ -35,6 +38,7 @@ fn download_model(app: tauri::AppHandle, model: transcriber::Model) -> String {
         .as_nanos()
         .to_string();
 
+    let ch = channel_name.clone();
     tauri::async_runtime::spawn(async move {
         let mut response = reqwest::get(model.download_url()).await.unwrap();
         let mut file = std::fs::File::create(model.path()).unwrap();
@@ -47,14 +51,14 @@ fn download_model(app: tauri::AppHandle, model: transcriber::Model) -> String {
             file.write_all(&chunk).unwrap();
             downloaded_size += length as u64;
 
-            app.emit(&channel_name, serde_json::json!({
+            app.emit(&ch, serde_json::json!({
                 "type": "progress",
                 "value": (downloaded_size as f32 / predicted_size as f32) * 100.0,
             }))
             .unwrap();
         }
 
-        app.emit(&channel_name, serde_json::json!({
+        app.emit(&ch, serde_json::json!({
             "type": "done",
             "value": "",
         }))
@@ -92,8 +96,6 @@ fn list_model_categories() -> Vec<serde_json::Value> {
 }
 
 fn main() {
-    use std::io::Write as _;
-
     let general_config: GeneralConfig =
         std::sync::Arc::new(std::sync::Mutex::new(configuration::GeneralConfig::default()));
 
