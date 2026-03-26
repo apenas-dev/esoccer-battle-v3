@@ -895,6 +895,48 @@ fn stop_recording_and_transcribe(
 }
 
 #[tauri::command]
+fn process_voice_text(
+    app: tauri::AppHandle,
+    text: String,
+    match_state: State<'_, MatchState>,
+    timer_state: State<'_, TimerHandle>,
+    pipeline_state: State<'_, VoicePipelineState>,
+    settings: State<'_, Settings>,
+) -> Result<(), String> {
+    let trimmed = text.trim().to_string();
+
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+
+    tracing::info!("[voice→game] Web Speech API received: \"{trimmed}\"");
+
+    // Emit the voice_text event so the frontend can display it
+    let _ = app.emit(
+        "voice_text",
+        serde_json::json!({ "text": &trimmed }),
+    );
+
+    // Parse and execute the command using the same parser as Whisper/PTT
+    match parser::parse_command(&trimmed) {
+        Some(cmd) => {
+            tracing::info!("[voice→game] Web Speech API parsed command: {cmd:?}");
+            let ms: MatchState = match_state.inner().clone();
+            let ps = pipeline_state.inner();
+            let ts = timer_state.inner();
+            let ss = settings.inner();
+            execute_command(&app, &ms, ps, ts, ss, cmd);
+        }
+        None => {
+            tracing::info!("[voice→game] Web Speech API unknown command: \"{trimmed}\"");
+            let _ = app.emit("command_unknown", serde_json::json!({ "text": trimmed }));
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 fn get_recording_state(recording_state: State<'_, RecordingState>) -> Result<serde_json::Value, String> {
     let is_recording = recording_state
         .lock()
@@ -1134,6 +1176,7 @@ fn main() {
             list_model_categories,
             start_recording,
             stop_recording_and_transcribe,
+            process_voice_text,
             get_recording_state,
         ])
         .run(tauri::generate_context!())
