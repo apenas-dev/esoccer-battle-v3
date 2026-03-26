@@ -30,7 +30,11 @@ function addCommand(setter: React.Dispatch<React.SetStateAction<CommandEntry[]>>
   setter((prev) => [{ id: generateId(), text, timestamp: new Date(), type }, ...prev]);
 }
 
-export function MatchPageConnected() {
+interface MatchPageConnectedProps {
+  onNavigateSettings?: () => void;
+}
+
+export function MatchPageConnected({ onNavigateSettings }: MatchPageConnectedProps) {
   const { matchState, startMatch, endMatch, goalA, goalB, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, restart, setScoreA, setScoreB } = useMatchState();
   const voice = useVoiceCommands(matchState.status === 'playing');
 
@@ -64,10 +68,19 @@ export function MatchPageConnected() {
   return (
     <div className="min-h-screen bg-[#0a0f1a] text-white flex flex-col items-center px-4 py-6 sm:px-6 sm:py-8">
       <motion.header initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-3xl mb-6 sm:mb-8">
-        <h1 className="text-lg sm:text-xl font-bold text-center tracking-tight">
+        <h1 className="text-lg sm:text-xl font-bold text-center tracking-tight flex-1">
           <span className="text-[#00ff88]">E-Soccer</span>{' '}
           <span className="text-gray-400">Battle</span>
         </h1>
+        {onNavigateSettings && (
+          <button
+            onClick={onNavigateSettings}
+            className="text-gray-500 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-gray-800"
+            aria-label="Configurações"
+          >
+            ⚙️
+          </button>
+        )}
       </motion.header>
 
       <main className="w-full max-w-3xl flex flex-col items-center gap-6 sm:gap-8">

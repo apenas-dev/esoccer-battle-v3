@@ -1,10 +1,15 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { isTauri } from './lib/tauri';
-import { MatchPage } from './components/match';
 
 const MatchPageConnected = lazy(() =>
   isTauri()
     ? import('./pages/MatchPageConnected').then((m) => ({ default: m.MatchPageConnected }))
+    : Promise.resolve({ default: () => <></> })
+);
+
+const SettingsPage = lazy(() =>
+  isTauri()
+    ? import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage }))
     : Promise.resolve({ default: () => <></> })
 );
 
@@ -16,14 +21,28 @@ function Fallback() {
   );
 }
 
+type Page = 'match' | 'settings';
+
 export function App() {
-  if (isTauri()) {
+  const [page, setPage] = useState<Page>('match');
+
+  if (!isTauri()) {
+    // Modo não-Tauri: renderiza MatchPage genérica
+    const MatchPage = lazy(() => import('./components/match').then((m) => ({ default: m.MatchPage })));
     return (
       <Suspense fallback={<Fallback />}>
-        <MatchPageConnected />
+        <MatchPage />
       </Suspense>
     );
   }
 
-  return <MatchPage />;
+  return (
+    <Suspense fallback={<Fallback />}>
+      {page === 'match' ? (
+        <MatchPageConnected onNavigateSettings={() => setPage('settings')} />
+      ) : (
+        <SettingsPage onBack={() => setPage('match')} />
+      )}
+    </Suspense>
+  );
 }

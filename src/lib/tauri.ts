@@ -33,6 +33,22 @@ export interface AppSettings {
   team_b_name: string;
 }
 
+export interface ModelCategory {
+  type: string;
+  name: string;
+}
+
+export interface WhisperModel {
+  type: string;
+  name: string;
+  mem_usage: number;
+  disk_usage: number;
+  is_downloaded: boolean;
+  can_run: boolean;
+  category: string;
+  type_name: string;
+}
+
 export interface ModelInfo {
   name: string;
   size?: string;
@@ -124,8 +140,12 @@ export async function downloadModel(model: string): Promise<string> {
   return invoke('download_model', { model });
 }
 
-export async function listModels(): Promise<ModelInfo[]> {
+export async function listModels(): Promise<WhisperModel[]> {
   return invoke('list_models');
+}
+
+export async function listModelCategories(): Promise<ModelCategory[]> {
+  return invoke('list_model_categories');
 }
 
 // ── Events ────────────────────────────────────────────
