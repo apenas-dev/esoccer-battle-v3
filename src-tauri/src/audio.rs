@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 /// Sound effects used during the game.
 #[derive(Debug, Clone)]
@@ -42,8 +43,27 @@ fn audio_dir() -> PathBuf {
     PathBuf::from("audio")
 }
 
+/// Lazily-initialized, globally-shared OutputStreamHandle.
+///
+/// The `OutputStream` is intentionally leaked so it lives for the process
+/// lifetime, allowing any number of `Sink`s to be created from the handle.
+static OUTPUT_HANDLE: LazyLock<Option<rodio::OutputStreamHandle>> = LazyLock::new(|| {
+    let (_stream, handle) = match rodio::OutputStream::try_default() {
+        Ok(pair) => pair,
+        Err(e) => {
+            tracing::warn!("Failed to create global audio output stream: {e}");
+            return None;
+        }
+    };
+    // `_stream` is intentionally leaked — it must outlive all Sinks created
+    // from `handle`. The LazyLock ensures this happens exactly once.
+    std::mem::forget(_stream);
+    Some(handle)
+});
+
 /// Play a game sound effect asynchronously.
 ///
+/// Reuses a single global `OutputStream` created on first call.
 /// If the audio file cannot be found or loaded a warning is logged and the
 /// function returns without error — it will **never** panic. Playback happens
 /// on a dedicated `std::thread` so the caller is not blocked.
@@ -51,11 +71,11 @@ pub fn play_sound(sound: GameSound) {
     let path = audio_dir().join(sound.filename());
 
     std::thread::spawn(move || {
-        let (stream, handle) = match rodio::OutputStream::try_default() {
-            Ok(pair) => pair,
-            Err(e) => {
+        let handle = match OUTPUT_HANDLE.as_ref() {
+            Some(h) => h,
+            None => {
                 tracing::warn!(
-                    "Failed to open audio output stream for {:?}: {e}",
+                    "No audio output available — sound {:?} will be skipped",
                     sound
                 );
                 return;
@@ -82,7 +102,7 @@ pub fn play_sound(sound: GameSound) {
             }
         };
 
-        let sink = match rodio::Sink::try_new(&handle) {
+        let sink = match rodio::Sink::try_new(handle) {
             Ok(s) => s,
             Err(e) => {
                 tracing::warn!("Failed to create audio sink: {e}");
@@ -92,8 +112,5 @@ pub fn play_sound(sound: GameSound) {
 
         sink.append(source);
         sink.sleep_until_end();
-
-        // `stream` is dropped here after playback completes.
-        drop(stream);
     });
 }

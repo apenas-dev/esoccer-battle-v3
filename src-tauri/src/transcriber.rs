@@ -134,12 +134,22 @@ impl Model {
         }
     }
 
+    /// Returns `"en"` for English-only models, `"pt"` for multilingual ones.
+    pub fn default_language(&self) -> &'static str {
+        match self {
+            Self::TinyEnWhisper | Self::TinyEnQuantized
+            | Self::BaseEnWhisper | Self::BaseEnQuantized => "en",
+            _ => "pt",
+        }
+    }
+
+    /// Checks whether the system has enough available memory to run this model.
     pub fn can_run(&self) -> bool {
         use sysinfo::{MemoryRefreshKind, RefreshKind, System};
         let system = System::new_with_specifics(
             RefreshKind::new().with_memory(MemoryRefreshKind::everything()),
         );
-        let available = (system.total_memory() + system.total_swap()) as usize;
+        let available = system.available_memory() as usize;
         (self.average_memory_usage() * 1_000_000) < available
     }
 
@@ -193,6 +203,8 @@ pub fn load_context(model: &Model) -> anyhow::Result<WhisperContext> {
 // ── Voice Pipeline ───────────────────────────────────────────────────────
 
 /// Handle to the running transcription loop.
+///
+/// Dropping this value will signal the background thread to stop and join it.
 pub struct VoicePipeline {
     shutdown: Arc<AtomicBool>,
     thread_handle: Option<JoinHandle<Result<(), String>>>,
@@ -228,13 +240,26 @@ impl VoicePipeline {
 
     /// Signal the loop to stop. Returns after the thread has joined.
     pub fn stop(mut self) -> Result<(), String> {
-        self.shutdown.store(true, Ordering::Relaxed);
+        self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.thread_handle.take() {
             handle
                 .join()
                 .map_err(|_| "Transcription thread panicked".to_string())?
         } else {
             Ok(())
+        }
+    }
+}
+
+impl Drop for VoicePipeline {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.thread_handle.take() {
+            match handle.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("[transcriber] Thread error on drop: {e}"),
+                Err(_) => tracing::warn!("[transcriber] Transcription thread panicked during drop"),
+            }
         }
     }
 }
@@ -253,17 +278,19 @@ fn run_loop(
         .create_state()
         .map_err(|e| format!("Failed to create Whisper state: {e}"))?;
 
-    tracing::info!("[transcriber] Model loaded. Starting transcription loop.");
+    let language = model.default_language();
 
-    while !shutdown.load(Ordering::Relaxed) {
+    tracing::info!("[transcriber] Model loaded (language={language}). Starting transcription loop.");
+
+    while !shutdown.load(Ordering::SeqCst) {
         thread::sleep(std::time::Duration::from_millis(LOOP_INTERVAL_MS));
 
         let chunk = match buffer::extract_chunk(&audio_buffer, CHUNK_SECS, OVERLAP_SECS) {
             Some(c) => c,
-            None => continue, // not enough new data yet
+            None => continue,
         };
 
-        let params = build_params();
+        let params = build_params(language);
 
         if let Err(e) = state.full(params, &chunk) {
             tracing::warn!("[transcriber] Inference error: {e}");
@@ -285,7 +312,7 @@ fn run_loop(
 
         tracing::info!("[transcriber] Recognised: \"{trimmed}\"");
 
-        if let Err(e) = app_handle.emit("voice_text", serde_json::json!({ "text": trimmed })) {
+        if let Err(e) = app_handle.emit("voice_text", trimmed) {
             tracing::warn!("[transcriber] Failed to emit event: {e}");
         }
     }
@@ -295,16 +322,15 @@ fn run_loop(
 }
 
 /// Build Whisper inference parameters.
-fn build_params() -> FullParams<'static, 'static> {
+fn build_params(language: &'static str) -> FullParams<'static, 'static> {
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-    params.set_language(Some("pt"));
+    params.set_language(Some(language));
     params.set_translate(false);
     params
 }
 
 /// Extract recognised text from the first segment.
 fn extract_text(state: &whisper_rs::WhisperState) -> Result<String, String> {
-    // Try to get the number of segments first.
     let n_segments = state
         .full_n_segments()
         .map_err(|e| format!("Failed to get segment count: {e}"))?;

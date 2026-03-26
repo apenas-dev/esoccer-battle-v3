@@ -29,6 +29,8 @@ pub struct DeviceResult {
 pub type AudioBuffer = Arc<Mutex<VecDeque<f32>>>;
 
 /// Handle to a running capture stream.
+///
+/// Dropping this value will signal the background thread to stop and join it.
 pub struct AudioStream {
     /// Shared PCM samples (16 kHz mono F32, newest at the back).
     pub buffer: AudioBuffer,
@@ -36,16 +38,15 @@ pub struct AudioStream {
     thread_handle: Option<JoinHandle<Result<(), String>>>,
 }
 
-impl AudioStream {
-    /// Stop capture and join the background thread.
-    pub fn stop(mut self) -> Result<(), String> {
-        self.shutdown.store(true, Ordering::Relaxed);
+impl Drop for AudioStream {
+    fn drop(&mut self) {
+        self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.thread_handle.take() {
-            handle
-                .join()
-                .map_err(|_| "Capture thread panicked".to_string())?
-        } else {
-            Ok(())
+            match handle.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => tracing::warn!("[capture] Thread error on drop: {e}"),
+                Err(_) => tracing::warn!("[capture] Capture thread panicked during drop"),
+            }
         }
     }
 }
@@ -71,8 +72,8 @@ pub fn list_microphone() -> Vec<DeviceResult> {
 ///   system default input device.
 ///
 /// Returns an [`AudioStream`] whose `.buffer` field can be read from
-/// any thread. The caller **must** call `AudioStream::stop()` to shut
-/// down gracefully.
+/// any thread. The stream is automatically stopped when the `AudioStream`
+/// is dropped.
 pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String> {
     let host = cpal::default_host();
     let device = match &device_name {
@@ -120,7 +121,7 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
                 .build_input_stream(
                     &config,
                     move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                        if shutdown_for_cb.load(Ordering::Relaxed) {
+                        if shutdown_for_cb.load(Ordering::SeqCst) {
                             return;
                         }
                         // Mix channels down to mono and resample.
@@ -157,7 +158,7 @@ pub fn start_capture(device_name: Option<String>) -> Result<AudioStream, String>
                 .map_err(|e| format!("Failed to start input stream: {e}"))?;
 
             // Keep stream alive until shutdown.
-            while !shutdown_for_thread.load(Ordering::Relaxed) {
+            while !shutdown_for_thread.load(Ordering::SeqCst) {
                 thread::sleep(std::time::Duration::from_millis(100));
             }
             drop(stream);

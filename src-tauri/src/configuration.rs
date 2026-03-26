@@ -8,7 +8,7 @@ fn config_path<D>() -> PathBuf {
     if let Err(e) = std::fs::create_dir_all(&dir) {
         warn!("Failed to create config directory: {e}");
     }
-    dir.join(format!("{}.bin", std::any::type_name::<D>()).replace("::", "-"))
+    dir.join("settings.bin")
 }
 
 pub fn save<D: Serialize>(data: &D) -> anyhow::Result<()> {
