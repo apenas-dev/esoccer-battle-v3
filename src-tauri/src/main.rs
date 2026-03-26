@@ -210,6 +210,31 @@ fn start_match_cmd(
         .map_err(|e| format!("Lock poisoned: {e}"))?
         .clone();
     emit_state(&app, &state);
+
+    // Play start whistle
+    audio::play_sound(audio::GameSound::WhistleStart);
+
+    // Auto-start voice pipeline from settings (non-fatal)
+    let (mic_device, model_str) = {
+        let s = settings
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        (s.mic_device.clone(), s.model.clone())
+    };
+    match serde_json::from_value::<transcriber::Model>(serde_json::json!(model_str)) {
+        Ok(model) => {
+            if !model.is_downloaded() {
+                tracing::warn!("[start_match] Model '{model_str}' not downloaded — voice disabled");
+            } else {
+                match start_listening_inner(&app, app.state::<VoicePipelineState>().inner(), mic_device, model) {
+                    Ok(()) => tracing::info!("[start_match] Voice pipeline started automatically"),
+                    Err(e) => tracing::warn!("[start_match] Failed to start voice pipeline (non-fatal): {e}"),
+                }
+            }
+        }
+        Err(e) => tracing::warn!("[start_match] Unknown model '{model_str}': {e} — voice disabled"),
+    }
+
     Ok(())
 }
 
@@ -218,6 +243,7 @@ fn end_match_cmd(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
     timer: State<'_, TimerHandle>,
+    pipeline: State<'_, VoicePipelineState>,
 ) -> Result<(), String> {
     {
         let mut state = match_state
@@ -228,6 +254,11 @@ fn end_match_cmd(
 
     stop_timer(&timer);
     audio::play_sound(audio::GameSound::WhistleEnd);
+
+    // Auto-stop voice pipeline (non-fatal)
+    if let Err(e) = stop_listening(pipeline) {
+        tracing::warn!("[end_match] Failed to stop voice pipeline (non-fatal): {e}");
+    }
 
     let state = match_state
         .lock()
@@ -376,10 +407,10 @@ fn get_match_state(match_state: State<'_, MatchState>) -> Result<game::MatchStat
 
 // ── Voice pipeline commands ──────────────────────────────────────────────
 
-#[tauri::command]
-fn start_listening(
-    app: tauri::AppHandle,
-    pipeline: State<'_, VoicePipelineState>,
+/// Shared logic used by both `start_listening` command and `start_match_cmd`.
+fn start_listening_inner(
+    app: &tauri::AppHandle,
+    pipeline: &VoicePipelineState,
     device_name: Option<String>,
     model: transcriber::Model,
 ) -> Result<(), String> {
@@ -397,7 +428,7 @@ fn start_listening(
     let stream = capture::start_capture(device_name)?;
     let audio_buffer = stream.buffer.clone();
 
-    let voice_pipeline = transcriber::VoicePipeline::start(app, audio_buffer, model)?;
+    let voice_pipeline = transcriber::VoicePipeline::start(app.clone(), audio_buffer, model)?;
 
     {
         let mut guard = pipeline
@@ -407,6 +438,16 @@ fn start_listening(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+fn start_listening(
+    app: tauri::AppHandle,
+    pipeline: State<'_, VoicePipelineState>,
+    device_name: Option<String>,
+    model: transcriber::Model,
+) -> Result<(), String> {
+    start_listening_inner(&app, pipeline.inner(), device_name, model)
 }
 
 #[tauri::command]

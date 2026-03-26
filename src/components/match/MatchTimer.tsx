@@ -29,14 +29,14 @@ export function MatchTimer({ elapsedSeconds, isRunning, className, ...props }: M
     <div className={cn('flex flex-col items-center gap-1', className)}
       role="timer" aria-label={`Tempo de jogo: ${formatted}`} aria-live="polite" {...props}>
       <div className="flex items-baseline tabular-nums">
-        <motion.span key={minutes} initial={changed ? { y: -10, opacity: 0 } : false} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.15 }}
+        <motion.span key={`min-${minutes}`} initial={changed ? { y: -10, opacity: 0 } : false} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.15 }}
           className="text-5xl sm:text-6xl lg:text-7xl font-bold text-gray-200 tracking-tight" aria-hidden="true">{minutes}</motion.span>
         <span className="text-5xl sm:text-6xl lg:text-7xl font-bold mx-1" aria-hidden="true">
           <motion.span animate={isRunning ? { opacity: [1, 0.3, 1] } : { opacity: 1 }}
             transition={isRunning ? { duration: 1, repeat: Infinity, ease: 'easeInOut' } : undefined}
             className="text-[#00ff88]">:</motion.span>
         </span>
-        <motion.span key={seconds} initial={changed ? { y: -10, opacity: 0 } : false} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.15 }}
+        <motion.span key={`sec-${seconds}`} initial={changed ? { y: -10, opacity: 0 } : false} animate={{ y: 0, opacity: 1 }} transition={{ duration: 0.15 }}
           className="text-5xl sm:text-6xl lg:text-7xl font-bold text-gray-200 tracking-tight" aria-hidden="true">{seconds}</motion.span>
       </div>
       <div className="flex items-center gap-2">
