@@ -1,9 +1,7 @@
+import { cn } from "../../lib/cn";
 import { useCallback, useEffect, useState, type HTMLAttributes } from 'react';
 import { motion } from 'framer-motion';
 
-function cn(...inputs: (string | undefined | false | null)[]) {
-  return inputs.filter(Boolean).join(' ');
-}
 
 import { Scoreboard, type MatchStatus } from './Scoreboard';
 import { MatchTimer } from './MatchTimer';
@@ -91,7 +89,7 @@ export function MatchPage({ teamAName = 'Time A', teamBName = 'Time B', classNam
 
       <footer className="mt-auto pt-8 pb-2">
         <p className="text-xs text-gray-700 text-center">
-          E-Soccer Battle V2 · Comandos de voz: iniciar, gol do time A/B, volta seis, dúvida, encerrar
+          E-Soccer Battle V3 · Comandos de voz: iniciar, gol do time A/B, volta seis, dúvida, encerrar
         </p>
       </footer>
     </div>

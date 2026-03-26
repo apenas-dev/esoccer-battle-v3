@@ -1,9 +1,7 @@
+import { cn } from "../../lib/cn";
 import { type HTMLAttributes, useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-function cn(...inputs: (string | undefined | false | null)[]) {
-  return inputs.filter(Boolean).join(' ');
-}
 
 // ── Types ─────────────────────────────────────────────
 export type MatchStatus = 'idle' | 'playing' | 'paused' | 'challenge' | 'finished';

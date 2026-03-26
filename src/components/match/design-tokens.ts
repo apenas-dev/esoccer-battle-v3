@@ -1,5 +1,5 @@
 /**
- * E-Soccer Battle V2 — Design Tokens
+ * E-Soccer Battle V3 — Design Tokens
  * Dark mode base + neon accents + stadium energy
  */
 export const tokens = {
