@@ -136,6 +136,7 @@ fn execute_command(
     match_state: &MatchState,
     pipeline_state: &VoicePipelineState,
     timer_state: &TimerHandle,
+    settings: &Settings,
     cmd: parser::GameCommand,
 ) {
     let state = {
@@ -182,7 +183,7 @@ fn execute_command(
         }
     }
 
-    // HIGH #3: Stop voice pipeline and timer on EndMatch and Restart
+    // Handle timer and voice pipeline lifecycle per command
     match cmd {
         parser::GameCommand::EndMatch => {
             tracing::info!("[voice] EndMatch via voice — stopping pipeline and timer");
@@ -190,9 +191,46 @@ fn execute_command(
             stop_timer(timer_state);
         }
         parser::GameCommand::Restart => {
-            tracing::info!("[voice] Restart via voice — stopping pipeline and timer");
+            tracing::info!("[voice] Restart via voice — stopping pipeline and timer, then re-spawning both");
             stop_listening_inner(pipeline_state);
             stop_timer(timer_state);
+
+            // Re-spawn voice pipeline
+            let (mic_device, model_str) = {
+                let s = match settings.lock() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("[voice] Restart: settings lock poisoned: {e}");
+                        emit_state(app, &state);
+                        return;
+                    }
+                };
+                (s.mic_device.clone(), s.model.clone())
+            };
+            match transcriber::Model::from_str_friendly(&model_str) {
+                Some(model) if model.is_downloaded() => {
+                    if let Err(e) = start_listening_inner(app, pipeline_state, mic_device, model) {
+                        tracing::warn!("[voice] Restart: failed to restart voice pipeline: {e}");
+                    }
+                }
+                _ => {
+                    tracing::info!("[voice] Restart: model not available, skipping voice pipeline restart");
+                }
+            }
+
+            // Re-spawn timer
+            let guard = spawn_timer(app.clone(), match_state.clone());
+            if let Ok(mut t) = timer_state.lock() {
+                *t = Some(guard);
+            }
+        }
+        parser::GameCommand::ResumeMatch | parser::GameCommand::ResolveChallenge => {
+            tracing::info!("[voice] {:?} via voice — re-spawning timer", cmd);
+            stop_timer(timer_state);
+            let guard = spawn_timer(app.clone(), match_state.clone());
+            if let Ok(mut t) = timer_state.lock() {
+                *t = Some(guard);
+            }
         }
         _ => {}
     }
@@ -852,7 +890,8 @@ fn setup_voice_to_game(app: &tauri::AppHandle) {
                 let match_state: MatchState = app_handle.state::<MatchState>().inner().clone();
                 let pipeline_state = app_handle.state::<VoicePipelineState>().inner();
                 let timer_state = app_handle.state::<TimerHandle>().inner();
-                execute_command(&app_handle, &match_state, pipeline_state, timer_state, cmd);
+                let settings_state = app_handle.state::<Settings>().inner();
+                execute_command(&app_handle, &match_state, pipeline_state, timer_state, settings_state, cmd);
             }
             None => {
                 tracing::info!("[voice→game] Unknown command: \"{trimmed}\"");

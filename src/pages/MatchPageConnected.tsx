@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useMatchState } from '../hooks/useMatchState';
 import { useVoiceCommands } from '../hooks/useVoiceCommands';
@@ -31,8 +31,17 @@ function addCommand(setter: React.Dispatch<React.SetStateAction<CommandEntry[]>>
 }
 
 export function MatchPageConnected() {
-  const { matchState, startMatch, endMatch, goalA, goalB, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, setScoreA, setScoreB } = useMatchState();
+  const { matchState, startMatch, endMatch, goalA, goalB, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, restart, setScoreA, setScoreB } = useMatchState();
   const voice = useVoiceCommands(matchState.status === 'playing');
+  const prevVoiceTextRef = useRef('');
+
+  // Log comandos de voz no CommandLog
+  useEffect(() => {
+    if (voice.lastText && voice.lastText !== prevVoiceTextRef.current) {
+      prevVoiceTextRef.current = voice.lastText;
+      addCommand(setCommands, `🎤 "${voice.lastText}"`, 'voice');
+    }
+  }, [voice.lastText, setCommands]);
 
   const uiStatus = mapStatus(matchState.status);
   const voiceState = mapVoiceState(matchState.status);
@@ -45,7 +54,8 @@ export function MatchPageConnected() {
   const handleGoalB = useCallback(() => { goalB(); addCommand(setCommands, `⚽ Gol do ${matchState.team_b_name}`, 'goal'); }, [goalB, matchState.team_b_name, setCommands]);
   const handlePause = useCallback(() => { pauseMatch(); addCommand(setCommands, '⏸ Partida pausada'); }, [pauseMatch, setCommands]);
   const handleResume = useCallback(() => { resumeMatch(); addCommand(setCommands, '▶ Partida retomada'); }, [resumeMatch, setCommands]);
-  const handleUndo = useCallback(() => { undoGoal(); addCommand(setCommands, '↩ Desfeito último gol'); }, [undoGoal, setCommands]);
+  const handleUndo = useCallback(() => { undoGoal(); addCommand(setCommands, '↶ Desfeito último gol'); }, [undoGoal, setCommands]);
+  const handleRestart = useCallback(() => { restart(); addCommand(setCommands, '↩ Volta Seis — contagem reiniciada'); }, [restart, setCommands]);
   const handleScoreAChange = useCallback((newScore: number) => { setScoreA(newScore); }, [setScoreA]);
   const handleScoreBChange = useCallback((newScore: number) => { setScoreB(newScore); }, [setScoreB]);
   const handleChallenge = useCallback(() => { challenge(); addCommand(setCommands, '❓ Dúvida', 'challenge'); }, [challenge, setCommands]);
@@ -94,6 +104,7 @@ export function MatchPageConnected() {
             onResume={handleResume}
             onEnd={handleEnd}
             onUndo={handleUndo}
+            onRestart={handleRestart}
             onChallenge={handleChallenge}
             onResolveChallenge={handleResolveChallenge}
             onGoalA={handleGoalA}

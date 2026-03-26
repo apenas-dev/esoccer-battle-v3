@@ -8,7 +8,7 @@ export interface CommandEntry {
   id: string;
   text: string;
   timestamp: Date;
-  type?: 'goal' | 'challenge' | 'control';
+  type?: 'goal' | 'challenge' | 'control' | 'voice';
 }
 
 export interface CommandLogProps extends HTMLAttributes<HTMLDivElement> {
@@ -47,13 +47,14 @@ export const CommandLog = memo(function CommandLog({ commands, maxEntries = 5, c
               className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors duration-200 ${
                 cmd.type === 'goal' ? 'bg-amber-900/20 border border-amber-500/10'
                   : cmd.type === 'challenge' ? 'bg-violet-900/20 border border-violet-500/10'
+                  : cmd.type === 'voice' ? 'bg-cyan-900/15 border border-cyan-500/10'
                   : 'bg-gray-800/50 border border-gray-700/30'}`}
               aria-label={`Comando: ${cmd.text}`}>
-              <span className={cmd.type === 'goal' ? 'text-[#fbbf24]' : cmd.type === 'challenge' ? 'text-violet-400' : 'text-gray-500'} aria-hidden="true">
-                {cmd.type === 'goal' ? '⚽' : cmd.type === 'challenge' ? '❓' : '🎙️'}
+              <span className={cmd.type === 'goal' ? 'text-[#fbbf24]' : cmd.type === 'challenge' ? 'text-violet-400' : cmd.type === 'voice' ? 'text-cyan-400' : 'text-gray-500'} aria-hidden="true">
+                {cmd.type === 'goal' ? '⚽' : cmd.type === 'challenge' ? '❓' : cmd.type === 'voice' ? '🎤' : '🎙️'}
               </span>
               <span className={`flex-1 text-sm font-medium ${
-                cmd.type === 'goal' ? 'text-amber-300' : cmd.type === 'challenge' ? 'text-violet-300' : 'text-gray-300'}`}>
+                cmd.type === 'goal' ? 'text-amber-300' : cmd.type === 'challenge' ? 'text-violet-300' : cmd.type === 'voice' ? 'text-cyan-200' : 'text-gray-300'}`}>
                 {cmd.text}
               </span>
               <span className="text-xs text-gray-600 tabular-nums font-mono">{fmtTime(cmd.timestamp)}</span>

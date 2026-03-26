@@ -121,7 +121,7 @@ export const Scoreboard = memo(function Scoreboard({ teamAName, teamBName, score
     if (scoreB !== prevB.current) { setConfettiTeam('B'); prevB.current = scoreB; const t = setTimeout(() => setConfettiTeam(null), 2000); return () => clearTimeout(t); }
   }, [scoreA, scoreB]);
 
-  const isEditable = status === 'playing';
+  const isEditable = status === 'playing' || status === 'paused';
   const isChallenge = status === 'challenge';
   const incA = useCallback(() => onScoreAChange?.(scoreA + 1), [scoreA, onScoreAChange]);
   const decA = useCallback(() => onScoreAChange?.(Math.max(0, scoreA - 1)), [scoreA, onScoreAChange]);

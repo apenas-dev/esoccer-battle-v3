@@ -83,6 +83,10 @@ pub fn set_score_b(state: &mut MatchState, score: u32) {
 }
 
 pub fn undo_goal(state: &mut MatchState) -> Result<(), String> {
+    if state.status != MatchStatus::Playing && state.status != MatchStatus::Paused {
+        tracing::warn!("[undo_goal] blocked — match status is {}", state.status_text());
+        return Err(format!("Can only undo goals while playing or paused (current: {})", state.status_text()));
+    }
     match state.last_command.as_deref() {
         Some("goal_a") => {
             state.score_a = state.score_a.saturating_sub(1);

@@ -10,6 +10,7 @@ export interface MatchControlsProps extends HTMLAttributes<HTMLDivElement> {
   onResume?: () => void;
   onEnd?: () => void;
   onUndo?: () => void;
+  onRestart?: () => void;
   onChallenge?: () => void;
   onResolveChallenge?: () => void;
   onGoalA?: () => void;
@@ -43,7 +44,7 @@ const CtrlBtn = memo(function CtrlBtn({ label, icon, onClick, variant = 'default
   );
 });
 
-export const MatchControls = memo(function MatchControls({ status, onStart, onPause, onResume, onEnd, onUndo, onChallenge, onResolveChallenge, onGoalA, onGoalB, teamAName = 'Time A', teamBName = 'Time B', className, ...props }: MatchControlsProps) {
+export const MatchControls = memo(function MatchControls({ status, onStart, onPause, onResume, onEnd, onUndo, onRestart, onChallenge, onResolveChallenge, onGoalA, onGoalB, teamAName = 'Time A', teamBName = 'Time B', className, ...props }: MatchControlsProps) {
   const idle = status === 'idle';
   const playing = status === 'playing';
   const paused = status === 'paused';
@@ -57,7 +58,8 @@ export const MatchControls = memo(function MatchControls({ status, onStart, onPa
         {idle && <CtrlBtn label="Iniciar Partida" icon="▶" onClick={onStart} variant="primary" ariaLabel="Iniciar a partida" />}
         {playing && <CtrlBtn label="Pausar" icon="⏸" onClick={onPause} variant="warning" ariaLabel="Pausar a partida" />}
         {paused && <CtrlBtn label="Retomar" icon="▶" onClick={onResume} variant="primary" ariaLabel="Retomar a partida" />}
-        {canAct && <CtrlBtn label="Volta Seis" icon="↩" onClick={onUndo} variant="default" ariaLabel="Desfazer último comando" />}
+        {canAct && <CtrlBtn label="Volta Seis" icon="↩" onClick={onRestart} variant="warning" ariaLabel="Reiniciar contagem (volta seis)" />}
+        {canAct && <CtrlBtn label="Desfazer Gol" icon="↶" onClick={onUndo} variant="default" ariaLabel="Desfazer último gol" />}
         {canAct && !challenge && <CtrlBtn label="Dúvida" icon="❓" onClick={onChallenge} variant="warning" ariaLabel="Acionar dúvida" />}
         {challenge && <CtrlBtn label="Resolver" icon="✅" onClick={onResolveChallenge} variant="resolve" ariaLabel="Resolver dúvida" />}
         {!idle && !finished && <CtrlBtn label="Encerrar" icon="⏹" onClick={onEnd} variant="danger" ariaLabel="Encerrar a partida" />}
