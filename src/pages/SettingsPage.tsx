@@ -7,7 +7,6 @@ import {
   listModels,
   listModelCategories,
   downloadModel,
-  onModelDownloadProgress,
   type AppSettings,
   type WhisperModel,
   type ModelCategory,
@@ -58,10 +57,14 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
   // Download state
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
+  const downloadUnlistenRef = useRef<(() => void) | null>(null);
 
   // Toast state
   const [toast, setToast] = useState<Toast | null>(null);
   const toastIdRef = useRef(0);
+
+  // Debounce ref para updateSettings
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Carregar dados iniciais ────────────────────────
 
@@ -85,25 +88,6 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     })();
   }, []);
 
-  // ── Escutar progresso de download ──────────────────
-
-  useEffect(() => {
-    let unlisten: Awaited<ReturnType<typeof listen>> | undefined;
-
-    onModelDownloadProgress((payload) => {
-      setDownloadProgress((prev) => {
-        if (!downloading) return prev;
-        return { ...prev, [downloading]: payload.percent };
-      });
-    }).then((fn) => {
-      unlisten = fn;
-    });
-
-    return () => {
-      unlisten?.();
-    };
-  }, [downloading]);
-
   // ── Helpers ─────────────────────────────────────────
 
   function showToast(message: string, type: ToastType) {
@@ -116,36 +100,71 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
     (partial: Partial<AppSettings>) => {
       const updated = { ...settings, ...partial };
       setLocalSettings(updated);
-      setSettings(updated).then(() => showToast('Salvo com sucesso!', 'success')).catch(() => showToast('Erro ao salvar', 'error'));
+
+      // Debounce: salva no backend após 500ms sem mudanças
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        setSettings(updated)
+          .then(() => showToast('Salvo com sucesso!', 'success'))
+          .catch(() => showToast('Erro ao salvar', 'error'));
+      }, 500);
     },
     [settings],
   );
 
   const handleDownload = useCallback(
     async (modelName: string) => {
+      // BUG-2/BUG-4: Impedir download duplicado
+      if (downloading !== null) return;
+
       try {
         setDownloading(modelName);
         setDownloadProgress((prev) => ({ ...prev, [modelName]: 0 }));
 
+        // BUG-1: Limpar listener anterior (se houver)
+        if (downloadUnlistenRef.current) {
+          downloadUnlistenRef.current();
+          downloadUnlistenRef.current = null;
+        }
+
         const channelName = await downloadModel(modelName);
 
-        // Escuta específica do canal retornado para progresso
-        const { listen } = await import('@tauri-apps/api/event');
-        const unlisten = await listen<{ percent: number }>(channelName, (e) => {
-          setDownloadProgress((prev) => ({ ...prev, [modelName]: e.payload.percent }));
+        // BUG-1: Usar listener do canal específico com eventos de progress/done/error
+        const unlisten = await listen<{
+          type: 'progress' | 'done' | 'error';
+          value: string | number;
+        }>(channelName, (e) => {
+          const payload = e.payload;
+          switch (payload.type) {
+            case 'progress':
+              setDownloadProgress((prev) => ({
+                ...prev,
+                [modelName]: Number(payload.value),
+              }));
+              break;
+            case 'done':
+              setDownloadProgress((prev) => ({ ...prev, [modelName]: 100 }));
+              setDownloading((d) => (d === modelName ? null : d));
+              if (downloadUnlistenRef.current) {
+                downloadUnlistenRef.current();
+                downloadUnlistenRef.current = null;
+              }
+              listModels().then(setModels);
+              showToast(`${modelName} baixado com sucesso!`, 'success');
+              break;
+            case 'error':
+              setDownloading((d) => (d === modelName ? null : d));
+              setDownloadProgress((prev) => ({ ...prev, [modelName]: 0 }));
+              if (downloadUnlistenRef.current) {
+                downloadUnlistenRef.current();
+                downloadUnlistenRef.current = null;
+              }
+              showToast(`Erro ao baixar ${modelName}: ${payload.value}`, 'error');
+              break;
+          }
         });
 
-        // Aguarda download terminar (poll do progress chegando em 100)
-        // Na prática o evento de progresso finaliza, limpamos depois
-        setTimeout(() => {
-          unlisten();
-          setDownloading((d) => (d === modelName ? null : d));
-          setDownloadProgress((prev) => ({ ...prev, [modelName]: 0 }));
-
-          // Recarrega modelos para refletir status atualizado
-          listModels().then(setModels);
-          showToast(`${modelName} baixado com sucesso!`, 'success');
-        }, 5000); // Fallback — em produção seria baseado no evento de conclusão
+        downloadUnlistenRef.current = unlisten;
       } catch (err) {
         setDownloading((d) => (d === modelName ? null : d));
         setDownloadProgress((prev) => ({ ...prev, [modelName]: 0 }));
@@ -153,7 +172,7 @@ export function SettingsPage({ onBack }: SettingsPageProps) {
         console.error(err);
       }
     },
-    [],
+    [downloading],
   );
 
   // ── Render ──────────────────────────────────────────
