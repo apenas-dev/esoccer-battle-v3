@@ -1,0 +1,82 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "E-Soccer Battle" [level=1] [ref=e5]
+  - main [ref=e6]:
+    - region "Placar" [ref=e7]:
+      - region "Placar da partida" [ref=e9]:
+        - 'status "Status: EM JOGO" [ref=e11]': EM JOGO
+        - generic [ref=e15]:
+          - generic [ref=e16]:
+            - heading "Time A" [level=2] [ref=e17]
+            - generic [ref=e18]:
+              - generic [ref=e19]:
+                - button "Diminuir gol time A" [ref=e20]: −
+                - button "Aumentar gol time A" [ref=e21]: +
+              - 'img "Placar time A: 1 gols" [ref=e22]': "1"
+          - generic [ref=e23]: ×
+          - generic [ref=e24]:
+            - heading "Time B" [level=2] [ref=e25]
+            - generic [ref=e26]:
+              - generic [ref=e27]:
+                - button "Diminuir gol time B" [ref=e28]: −
+                - button "Aumentar gol time B" [ref=e29]: +
+              - 'img "Placar time B: 1 gols" [ref=e30]': "1"
+    - region "Cronômetro" [ref=e31]:
+      - 'timer "Tempo de jogo: 00:29" [ref=e32]':
+        - generic [ref=e33]:
+          - generic [ref=e34]: "00"
+          - generic [ref=e35]: ":"
+          - generic [ref=e36]: "29"
+        - generic [ref=e41]: Ao vivo
+    - region "Indicador de voz" [ref=e42]:
+      - status "Ouvindo..." [ref=e43]:
+        - img [ref=e47]
+        - generic [ref=e57]: Ouvindo...
+    - region "Log de comandos" [ref=e58]:
+      - log "Histórico de comandos" [ref=e59]:
+        - generic [ref=e60]:
+          - img [ref=e61]
+          - heading "Comandos" [level=3] [ref=e63]
+          - generic [ref=e64]: "3"
+        - generic [ref=e65]:
+          - 'generic "Comando: ⚽ Gol do Time B" [ref=e66]':
+            - generic [ref=e67]: ⚽
+            - generic [ref=e68]: ⚽ Gol do Time B
+            - generic [ref=e69]: 11:16:27
+          - 'generic "Comando: ⚽ Gol do Time A" [ref=e70]':
+            - generic [ref=e71]: ⚽
+            - generic [ref=e72]: ⚽ Gol do Time A
+            - generic [ref=e73]: 11:16:26
+          - 'generic "Comando: Partida iniciada" [ref=e74]':
+            - generic [ref=e75]: 🎙️
+            - generic [ref=e76]: Partida iniciada
+            - generic [ref=e77]: 11:16:25
+    - region "Controles manuais" [ref=e78]:
+      - toolbar "Controles da partida" [ref=e79]:
+        - generic [ref=e80]:
+          - button "Pausar a partida" [ref=e81]:
+            - generic [ref=e82]: ⏸
+            - generic [ref=e83]: Pausar
+          - button "Desfazer último comando" [ref=e84]:
+            - generic [ref=e85]: ↩
+            - generic [ref=e86]: Volta Seis
+          - button "Acionar dúvida" [ref=e87]:
+            - generic [ref=e88]: ❓
+            - generic [ref=e89]: Dúvida
+          - button "Encerrar a partida" [ref=e90]:
+            - generic [ref=e91]: ⏹
+            - generic [ref=e92]: Encerrar
+        - generic [ref=e93]:
+          - button "Gol para Time A" [ref=e94]:
+            - generic [ref=e95]: ⚽
+            - generic [ref=e96]: Gol Time A
+          - button "Gol para Time B" [active] [ref=e97]:
+            - generic [ref=e98]: ⚽
+            - generic [ref=e99]: Gol Time B
+        - paragraph [ref=e100]: Mic ativo — diga "gol do time A" ou use os botões acima
+  - contentinfo [ref=e101]:
+    - paragraph [ref=e102]: "E-Soccer Battle V2 · Comandos de voz: iniciar, gol do time A/B, volta seis, dúvida, encerrar"
+```

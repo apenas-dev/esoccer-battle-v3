@@ -8,7 +8,7 @@ function cn(...inputs: (string | undefined | false | null)[]) {
 // ── Types ─────────────────────────────────────────────
 export type MatchStatus = 'idle' | 'playing' | 'paused' | 'challenge' | 'finished';
 
-interface ScoreboardProps extends HTMLAttributes<HTMLDivElement> {
+export interface ScoreboardProps extends HTMLAttributes<HTMLDivElement> {
   teamAName: string;
   teamBName: string;
   scoreA: number;

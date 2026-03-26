@@ -1,0 +1,45 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - heading "E-Soccer Battle" [level=1] [ref=e5]
+  - main [ref=e6]:
+    - region "Placar" [ref=e7]:
+      - region "Placar da partida" [ref=e9]:
+        - 'status "Status: AGUARDANDO" [ref=e11]': AGUARDANDO
+        - generic [ref=e12]:
+          - generic [ref=e13]:
+            - heading "Time A" [level=2] [ref=e14]
+            - 'img "Placar time A: 0 gols" [ref=e16]': "0"
+          - generic [ref=e17]: ×
+          - generic [ref=e18]:
+            - heading "Time B" [level=2] [ref=e19]
+            - 'img "Placar time B: 0 gols" [ref=e21]': "0"
+        - paragraph [ref=e23]: Fale "iniciar partida" ou clique em começar
+    - region "Cronômetro" [ref=e24]:
+      - 'timer "Tempo de jogo: 00:00" [ref=e25]':
+        - generic [ref=e26]:
+          - generic [ref=e27]: "00"
+          - generic [ref=e28]: ":"
+          - generic [ref=e29]: "00"
+        - generic [ref=e31]: Cronômetro
+    - region "Indicador de voz" [ref=e32]:
+      - status "Mic desligado" [ref=e33]:
+        - img [ref=e36]
+        - generic [ref=e38]: Mic desligado
+    - region "Log de comandos" [ref=e39]:
+      - log "Histórico de comandos" [ref=e40]:
+        - generic [ref=e41]:
+          - img [ref=e42]
+          - heading "Comandos" [level=3] [ref=e44]
+        - paragraph [ref=e46]: Nenhum comando reconhecido
+    - region "Controles manuais" [ref=e47]:
+      - toolbar "Controles da partida" [ref=e48]:
+        - button "Iniciar a partida" [ref=e50]:
+          - generic [ref=e51]: ▶
+          - generic [ref=e52]: Iniciar Partida
+        - paragraph [ref=e53]: Comandos de voz disponíveis ao iniciar
+  - contentinfo [ref=e54]:
+    - paragraph [ref=e55]: "E-Soccer Battle V2 · Comandos de voz: iniciar, gol do time A/B, volta seis, dúvida, encerrar"
+```

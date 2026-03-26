@@ -109,10 +109,13 @@ mod tests {
         let len_after_first = buf.lock().unwrap().len();
         assert!(len_after_first < 80_000, "buffer should shrink after extraction");
 
-        // Fill more data
-        for i in 0..20_000 {
+        // Fill enough data for another extraction (need >= 32k new samples)
+        let len_now = buf.lock().unwrap().len();
+        for i in 0..40_000 {
             buf.lock().unwrap().push_back((80_000 + i) as f32);
         }
+        let total = buf.lock().unwrap().len();
+        assert!(total >= 32_000, "need enough data for second extraction, got {total}");
 
         let chunk2 = extract_chunk(&buf, 2.5, 0.5).unwrap();
         // The second chunk should start from a later offset (no full re-transcription)
