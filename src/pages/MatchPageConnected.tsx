@@ -33,6 +33,11 @@ function addCommand(setter: React.Dispatch<React.SetStateAction<CommandEntry[]>>
 export function MatchPageConnected() {
   const { matchState, startMatch, endMatch, goalA, goalB, challenge, resolveChallenge, pauseMatch, resumeMatch, undoGoal, restart, setScoreA, setScoreB } = useMatchState();
   const voice = useVoiceCommands(matchState.status === 'playing');
+
+  const uiStatus = mapStatus(matchState.status);
+  const voiceState = mapVoiceState(matchState.status);
+
+  const [commands, setCommands] = useCommandLog();
   const prevVoiceTextRef = useRef('');
 
   // Log comandos de voz no CommandLog
@@ -42,11 +47,6 @@ export function MatchPageConnected() {
       addCommand(setCommands, `🎤 "${voice.lastText}"`, 'voice');
     }
   }, [voice.lastText, setCommands]);
-
-  const uiStatus = mapStatus(matchState.status);
-  const voiceState = mapVoiceState(matchState.status);
-
-  const [commands, setCommands] = useCommandLog();
 
   const handleStart = useCallback(() => { startMatch(); addCommand(setCommands, 'Partida iniciada'); }, [startMatch, setCommands]);
   const handleEnd = useCallback(() => { endMatch(); addCommand(setCommands, 'Partida encerrada'); }, [endMatch, setCommands]);
