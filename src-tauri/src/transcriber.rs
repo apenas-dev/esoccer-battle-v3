@@ -74,6 +74,10 @@ impl ModelType {
 
 #[derive(Debug, Serialize, Deserialize, EnumIter, Clone, Copy)]
 pub enum Model {
+    MediumWhisper,
+    MediumEnWhisper,
+    SmallWhisper,
+    SmallEnWhisper,
     TinyWhisper,
     TinyEnWhisper,
     TinyQuantized,
@@ -90,6 +94,10 @@ impl Model {
     pub fn from_str_friendly(s: &str) -> Option<Self> {
         let lower = s.to_lowercase();
         let model = match lower.as_str() {
+            "medium" | "mediumwhisper" => Self::MediumWhisper,
+            "mediumenwhisper" | "medium_en" | "medium-en" | "mediumwhisperen" => Self::MediumEnWhisper,
+            "small" | "smallwhisper" => Self::SmallWhisper,
+            "smallenwhisper" | "small_en" | "small-en" | "smallwhisperen" => Self::SmallEnWhisper,
             "tiny" | "tinywhisper" => Self::TinyWhisper,
             "tinyenwhisper" | "tiny_en" | "tiny-en" | "tinywhisperen" => Self::TinyEnWhisper,
             "tinyquantized" | "tiny_quantized" | "tiny-q" => Self::TinyQuantized,
@@ -104,15 +112,13 @@ impl Model {
     }
 
     pub fn default_model() -> Self {
-        Self::BaseWhisper
-    }
-
-    pub fn recommended_models() -> Vec<Self> {
-        vec![Self::TinyWhisper, Self::BaseWhisper]
+        Self::MediumWhisper
     }
 
     pub fn name(&self) -> &'static str {
         match self {
+            Self::SmallWhisper => "Small",
+            Self::SmallEnWhisper => "Small English",
             Self::TinyWhisper => "Tiny",
             Self::TinyEnWhisper => "Tiny English",
             Self::TinyQuantized => "Tiny (Quantized)",
@@ -126,6 +132,8 @@ impl Model {
 
     pub fn download_url(&self) -> &'static str {
         match self {
+            Self::SmallWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin?download=true",
+            Self::SmallEnWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin?download=true",
             Self::TinyWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin?download=true",
             Self::TinyEnWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin?download=true",
             Self::TinyQuantized => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin?download=true",
@@ -139,6 +147,8 @@ impl Model {
 
     pub fn file_name(&self) -> &'static str {
         match self {
+            Self::SmallWhisper => "small.bin",
+            Self::SmallEnWhisper => "small-en.bin",
             Self::TinyWhisper => "tiny.bin",
             Self::TinyEnWhisper => "tiny-en.bin",
             Self::TinyQuantized => "tiny-q.bin",
@@ -152,6 +162,7 @@ impl Model {
 
     pub fn average_memory_usage(&self) -> usize {
         match self {
+            Self::SmallWhisper | Self::SmallEnWhisper => 1000,
             Self::TinyWhisper | Self::TinyEnWhisper | Self::TinyQuantized | Self::TinyEnQuantized => 390,
             Self::BaseWhisper | Self::BaseEnWhisper | Self::BaseQuantized | Self::BaseEnQuantized => 500,
         }
@@ -160,7 +171,7 @@ impl Model {
     /// Returns `"en"` for English-only models, `"pt"` for multilingual ones.
     pub fn default_language(&self) -> &'static str {
         match self {
-            Self::TinyEnWhisper | Self::TinyEnQuantized
+            Self::SmallEnWhisper | Self::TinyEnWhisper | Self::TinyEnQuantized
             | Self::BaseEnWhisper | Self::BaseEnQuantized => "en",
             _ => "pt",
         }
@@ -178,6 +189,7 @@ impl Model {
 
     pub fn disk_usage(&self) -> usize {
         match self {
+            Self::SmallWhisper | Self::SmallEnWhisper => 491,
             Self::TinyWhisper | Self::TinyEnWhisper => 77,
             Self::TinyQuantized | Self::TinyEnQuantized => 33,
             Self::BaseWhisper | Self::BaseEnWhisper => 148,
@@ -195,7 +207,7 @@ impl Model {
 
     pub fn category(&self) -> Category {
         match self {
-            Self::TinyWhisper | Self::BaseWhisper => Category::Recommended,
+            Self::SmallWhisper | Self::BaseWhisper => Category::Recommended,
             _ => Category::Other,
         }
     }
