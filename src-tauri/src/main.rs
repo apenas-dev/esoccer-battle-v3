@@ -3,11 +3,13 @@
 use std::io::Write as _;
 use tauri::Emitter as _;
 
+mod buffer;
 mod configuration;
 mod capture;
 mod transcriber;
 
 type Settings = std::sync::Arc<std::sync::Mutex<configuration::AppSettings>>;
+type VoicePipelineState = std::sync::Mutex<Option<transcriber::VoicePipeline>>;
 
 fn project_directory() -> directories::ProjectDirs {
     directories::ProjectDirs::from("com.esoccer", "ESoccer", "ESoccerBattle")
@@ -97,6 +99,54 @@ fn list_model_categories() -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// Start the voice transcription pipeline.
+///
+/// Captures audio from the given microphone and streams recognised text
+/// via `"voice_text"` Tauri events.
+#[tauri::command]
+fn start_listening(
+    app: tauri::AppHandle,
+    pipeline: tauri::State<'_, VoicePipelineState>,
+    device_name: Option<String>,
+    model: transcriber::Model,
+) -> Result<(), String> {
+    // Stop any existing pipeline first.
+    {
+        let mut guard = pipeline.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+        if guard.is_some() {
+            let old = guard.take().ok_or("Failed to take old pipeline")?;
+            old.stop().map_err(|e| format!("Failed to stop previous pipeline: {e}"))?;
+        }
+    }
+
+    let stream = capture::start_capture(device_name)?;
+    let audio_buffer = stream.buffer.clone();
+
+    // Keep the stream alive — we leak it intentionally; it will be stopped
+    // when the pipeline stops or the app exits. The capture thread self-terminates
+    // on shutdown.
+    // TODO: tie stream lifecycle to VoicePipeline for clean shutdown.
+
+    let voice_pipeline = transcriber::VoicePipeline::start(app, audio_buffer, model)?;
+
+    {
+        let mut guard = pipeline.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+        *guard = Some(voice_pipeline);
+    }
+
+    Ok(())
+}
+
+/// Stop the voice transcription pipeline.
+#[tauri::command]
+fn stop_listening(pipeline: tauri::State<'_, VoicePipelineState>) -> Result<(), String> {
+    let mut guard = pipeline.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+    if let Some(p) = guard.take() {
+        p.stop().map_err(|e| format!("Failed to stop pipeline: {e}"))?;
+    }
+    Ok(())
+}
+
 fn main() {
     let settings: Settings =
         std::sync::Arc::new(std::sync::Mutex::new(configuration::AppSettings::default()));
@@ -105,6 +155,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(settings)
+        .manage(std::sync::Mutex::new(None::<transcriber::VoicePipeline>))
         .invoke_handler(tauri::generate_handler![
             list_microphone,
             get_settings,
@@ -112,6 +163,8 @@ fn main() {
             download_model,
             list_models,
             list_model_categories,
+            start_listening,
+            stop_listening,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
