@@ -397,6 +397,41 @@ mod tests {
         assert_eq!(parse_command("abacaxi"), None);
         assert_eq!(parse_command(""), None);
         assert_eq!(parse_command("xxx"), None);
+        // Task spec: abcxyz → command_unknown (i.e., parse returns None)
+        assert_eq!(parse_command("abcxyz"), None);
+    }
+
+    #[test]
+    fn test_extra_whitespace() {
+        assert_eq!(parse_command("  gol do time a  "), Some(GameCommand::GoalA));
+        assert_eq!(parse_command("  iniciar  partida  "), Some(GameCommand::StartMatch));
+        assert_eq!(parse_command("volta   seis"), Some(GameCommand::Restart));
+        assert_eq!(parse_command("  encerrar  "), Some(GameCommand::EndMatch));
+        assert_eq!(parse_command("  dúvida  "), Some(GameCommand::Challenge));
+    }
+
+    #[test]
+    fn test_gol_short_alias() {
+        // Task spec: "gol time a" → GoalA (alias curto)
+        assert_eq!(parse_command("gol time a"), Some(GameCommand::GoalA));
+        assert_eq!(parse_command("gol time b"), Some(GameCommand::GoalB));
+    }
+
+    #[test]
+    fn test_task_spec_commands() {
+        // All commands from the task spec
+        assert_eq!(parse_command("gol do time a"), Some(GameCommand::GoalA));
+        assert_eq!(parse_command("gol do time b"), Some(GameCommand::GoalB));
+        assert_eq!(parse_command("gol do time bê"), Some(GameCommand::GoalB));
+        assert_eq!(parse_command("gol time a"), Some(GameCommand::GoalA));
+        assert_eq!(parse_command("iniciar partida"), Some(GameCommand::StartMatch));
+        assert_eq!(parse_command("volta seis"), Some(GameCommand::Restart));
+        assert_eq!(parse_command("encerrar"), Some(GameCommand::EndMatch));
+        assert_eq!(parse_command("dúvida"), Some(GameCommand::Challenge));
+        // "gol" alone → NENHUM comando
+        assert_eq!(parse_command("gol"), None);
+        // "abcxyz" → unknown
+        assert_eq!(parse_command("abcxyz"), None);
     }
 
     #[test]
