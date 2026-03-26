@@ -43,6 +43,15 @@ pub struct AudioStream {
     thread_handle: Option<JoinHandle<Result<(), String>>>,
 }
 
+impl AudioStream {
+    /// Drain all samples from the buffer and return them as a `Vec<f32>`.
+    /// The buffer is left empty after this call.
+    pub fn drain_buffer(&self) -> Vec<f32> {
+        let mut buf = self.buffer.lock().unwrap_or_else(|e| e.into_inner());
+        buf.drain(..).collect()
+    }
+}
+
 impl Drop for AudioStream {
     fn drop(&mut self) {
         tracing::info!("[capture] Dropping AudioStream — signalling shutdown");

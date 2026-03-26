@@ -62,6 +62,10 @@ export interface VoiceTextPayload {
   text: string;
 }
 
+export interface RecordingStatePayload {
+  status: 'idle' | 'recording' | 'processing';
+}
+
 // ── Commands ──────────────────────────────────────────
 
 export async function startMatch(): Promise<void> {
@@ -164,6 +168,24 @@ export function onVoiceText(cb: (payload: VoiceTextPayload) => void): Promise<Un
 
 export function onCommandUnknown(cb: (payload: VoiceTextPayload) => void): Promise<UnlistenFn> {
   return listen<VoiceTextPayload>('command_unknown', (e) => cb(e.payload));
+}
+
+export async function startRecording(): Promise<void> {
+  return invoke('start_recording');
+}
+
+export async function stopRecordingAndTranscribe(): Promise<void> {
+  return invoke('stop_recording_and_transcribe');
+}
+
+export async function getRecordingState(): Promise<{ status: 'idle' | 'recording' | 'processing' }> {
+  return invoke('get_recording_state');
+}
+
+// ── Events (recording) ───────────────────────────────
+
+export function onRecordingState(cb: (payload: RecordingStatePayload) => void): Promise<UnlistenFn> {
+  return listen<RecordingStatePayload>('recording_state', (e) => cb(e.payload));
 }
 
 export function onModelDownloadProgress(cb: (payload: { percent: number }) => void): Promise<UnlistenFn> {

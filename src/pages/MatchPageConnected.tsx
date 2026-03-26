@@ -7,17 +7,12 @@ import { MatchTimer } from '../components/match/MatchTimer';
 import { VoiceIndicator, type VoiceState } from '../components/match/VoiceIndicator';
 import { CommandLog, type CommandEntry } from '../components/match/CommandLog';
 import { MatchControls } from '../components/match/MatchControls';
+import { startRecording, stopRecordingAndTranscribe, onRecordingState, type RecordingStatePayload } from '../lib/tauri';
 import { generateId } from '../lib/utils';
 import { type MatchStatus } from '../lib/types';
 
 function mapStatus(status: string): MatchStatus {
   if (status === 'playing' || status === 'challenge' || status === 'finished' || status === 'idle' || status === 'paused') return status;
-  return 'idle';
-}
-
-function mapVoiceState(status: string): VoiceState {
-  if (status === 'playing') return 'listening';
-  if (status === 'challenge') return 'processing';
   return 'idle';
 }
 
@@ -39,7 +34,30 @@ export function MatchPageConnected({ onNavigateSettings }: MatchPageConnectedPro
   const voice = useVoiceCommands(matchState.status === 'playing');
 
   const uiStatus = mapStatus(matchState.status);
-  const voiceState = mapVoiceState(matchState.status);
+
+  // ── Push-to-Talk state machine ──────────────────────
+  const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'processing'>('idle');
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    onRecordingState((payload: RecordingStatePayload) => {
+      setRecordingState(payload.status);
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, []);
+
+  const voiceState: VoiceState = recordingState === 'recording' ? 'listening'
+    : recordingState === 'processing' ? 'processing'
+    : 'idle';
+
+  const handleMicClick = useCallback(async () => {
+    if (recordingState === 'idle') {
+      try { await startRecording(); } catch (e) { console.error('startRecording failed:', e); }
+    } else if (recordingState === 'recording') {
+      try { await stopRecordingAndTranscribe(); } catch (e) { console.error('stopRecordingAndTranscribe failed:', e); }
+    }
+    // processing → ignored (button disabled)
+  }, [recordingState]);
 
   const [commands, setCommands] = useCommandLog();
   const prevVoiceTextRef = useRef('');
@@ -99,7 +117,7 @@ export function MatchPageConnected({ onNavigateSettings }: MatchPageConnectedPro
           <MatchTimer elapsedSeconds={matchState.elapsed_seconds} isRunning={matchState.status === 'playing'} />
         </section>
         <section aria-label="Indicador de voz">
-          <VoiceIndicator voiceState={voiceState} />
+          <VoiceIndicator voiceState={voiceState} onClick={handleMicClick} disabled={recordingState === 'processing'} />
           {voice.lastText && (
             <p className="text-xs text-gray-500 text-center mt-1 max-w-xs truncate">
               🎤 &ldquo;{voice.lastText}&rdquo;

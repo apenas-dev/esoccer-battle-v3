@@ -14,6 +14,7 @@ mod capture;
 mod configuration;
 mod game;
 mod parser;
+mod on_demand_transcriber;
 mod transcriber;
 
 // ── Shared state types ───────────────────────────────────────────────────
@@ -30,6 +31,9 @@ struct VoicePipelineHandle {
 }
 
 type VoicePipelineState = Mutex<Option<VoicePipelineHandle>>;
+
+/// State for push-to-talk recording (captures audio on demand).
+type RecordingState = Arc<Mutex<Option<capture::AudioStream>>>;
 
 /// Handle to the background timer thread.
 struct TimerGuard {
@@ -282,29 +286,6 @@ fn start_match(
 
     // Play start whistle
     audio::play_sound(audio::GameSound::WhistleStart);
-
-    // Auto-start voice pipeline from settings (non-fatal)
-    let (mic_device, model_str) = {
-        let s = settings
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        (s.mic_device.clone(), s.model.clone())
-    };
-    let model = match transcriber::Model::from_str_friendly(&model_str) {
-        Some(m) => m,
-        None => {
-            tracing::warn!("[start_match] Unknown model '{model_str}' — voice disabled");
-            return Ok(());
-        }
-    };
-    if !model.is_downloaded() {
-        tracing::warn!("[start_match] Model '{model_str}' not downloaded — voice disabled");
-    } else {
-        match start_listening_inner(&app, app.state::<VoicePipelineState>().inner(), mic_device, model) {
-            Ok(()) => tracing::info!("[start_match] Voice pipeline started automatically"),
-            Err(e) => tracing::warn!("[start_match] Failed to start voice pipeline (non-fatal): {e}"),
-        }
-    }
 
     Ok(())
 }
@@ -711,6 +692,164 @@ fn list_microphone() -> Vec<capture::DeviceResult> {
     capture::list_microphone()
 }
 
+// ── Push-to-talk commands ─────────────────────────────────────────────────
+
+#[tauri::command]
+fn start_recording(
+    app: tauri::AppHandle,
+    recording_state: State<'_, RecordingState>,
+    settings: State<'_, Settings>,
+) -> Result<(), String> {
+    let (mic_device, model_str) = {
+        let s = settings
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        (s.mic_device.clone(), s.model.clone())
+    };
+
+    // Verify model is downloaded
+    let model = transcriber::Model::from_str_friendly(&model_str)
+        .ok_or_else(|| format!("Unknown model '{model_str}'"))?;
+    if !model.is_downloaded() {
+        return Err(format!("Model '{}' is not downloaded", model_str));
+    }
+
+    // Stop any previous recording
+    {
+        let mut guard = recording_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        if let Some(_old) = guard.take() {
+            tracing::info!("[ptt] Stopped previous recording");
+            // _old dropped here — capture stops cleanly
+        }
+    }
+
+    tracing::info!(
+        "[ptt] Starting capture: device={}",
+        mic_device.as_deref().unwrap_or("default")
+    );
+
+    let stream = capture::start_capture(mic_device)
+        .map_err(|e| format!("Failed to start capture: {e}"))?;
+
+    tracing::info!("[ptt] ✅ Capture started");
+
+    {
+        let mut guard = recording_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        *guard = Some(stream);
+    }
+
+    let _ = app.emit(
+        "recording_state",
+        serde_json::json!({ "status": "recording" }),
+    );
+
+    tracing::info!("[ptt] ✅ Recording state emitted");
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_recording_and_transcribe(
+    app: tauri::AppHandle,
+    recording_state: State<'_, RecordingState>,
+    settings: State<'_, Settings>,
+) -> Result<(), String> {
+    let (model_str,) = {
+        let s = settings
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        (s.model.clone(),)
+    };
+
+    let model = transcriber::Model::from_str_friendly(&model_str)
+        .ok_or_else(|| format!("Unknown model '{model_str}'"))?;
+
+    // Take the stream out (stops capture)
+    let stream = {
+        let mut guard = recording_state
+            .lock()
+            .map_err(|e| format!("Lock poisoned: {e}"))?;
+        guard.take()
+    };
+
+    let stream = match stream {
+        Some(s) => {
+            tracing::info!("[ptt] Stopping capture, draining buffer…");
+            s
+        }
+        None => {
+            tracing::warn!("[ptt] stop_recording called but no active recording");
+            let _ = app.emit(
+                "recording_state",
+                serde_json::json!({ "status": "idle" }),
+            );
+            return Ok(());
+        }
+    };
+
+    let audio = stream.drain_buffer();
+
+    // stream is dropped here — capture fully stopped
+
+    if audio.len() < 16_000 {
+        tracing::info!(
+            "[ptt] Audio too short ({} samples < 16000) — ignoring",
+            audio.len()
+        );
+        let _ = app.emit("voice_empty", serde_json::json!({}));
+        let _ = app.emit(
+            "recording_state",
+            serde_json::json!({ "status": "idle" }),
+        );
+        return Ok(());
+    }
+
+    let _ = app.emit(
+        "recording_state",
+        serde_json::json!({ "status": "processing" }),
+    );
+
+    tracing::info!(
+        "[ptt] Transcribing {} samples (lang={})",
+        audio.len(),
+        model.default_language()
+    );
+
+    let text = on_demand_transcriber::transcribe_once(
+        &audio,
+        &model,
+        model.default_language(),
+    )
+    .map_err(|e| format!("Transcription failed: {e}"))?;
+
+    let _ = app.emit(
+        "voice_text",
+        serde_json::json!({ "text": text }),
+    );
+
+    let _ = app.emit(
+        "recording_state",
+        serde_json::json!({ "status": "idle" }),
+    );
+
+    tracing::info!("[ptt] ✅ Transcription emitted, back to idle");
+    Ok(())
+}
+
+#[tauri::command]
+fn get_recording_state(recording_state: State<'_, RecordingState>) -> Result<serde_json::Value, String> {
+    let is_recording = recording_state
+        .lock()
+        .map(|g| g.is_some())
+        .unwrap_or(false);
+
+    let status = if is_recording { "recording" } else { "idle" };
+    Ok(serde_json::json!({ "status": status }))
+}
+
 // ── Settings commands ────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -920,6 +1059,7 @@ fn main() {
         .manage(match_state)
         .manage(Mutex::new(None::<VoicePipelineHandle>))
         .manage(Mutex::new(None::<TimerGuard>))
+        .manage(Arc::new(Mutex::new(None::<capture::AudioStream>)))
         .setup(|app| {
             setup_voice_to_game(&app.handle().clone());
             Ok(())
@@ -946,6 +1086,9 @@ fn main() {
             download_model,
             list_models,
             list_model_categories,
+            start_recording,
+            stop_recording_and_transcribe,
+            get_recording_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
