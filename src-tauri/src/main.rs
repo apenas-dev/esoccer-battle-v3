@@ -894,11 +894,28 @@ fn get_settings(settings: State<'_, Settings>) -> Result<configuration::AppSetti
 
 #[tauri::command]
 fn set_settings(
+    app: tauri::AppHandle,
     settings_state: State<'_, Settings>,
+    match_state: State<'_, MatchState>,
     settings: configuration::AppSettings,
 ) -> Result<(), String> {
     if let Err(e) = configuration::save(&settings) {
         tracing::warn!("Failed to save settings: {e}");
+    }
+    {
+        let old = settings_state.lock().map_err(|e| format!("Lock poisoned: {e}"))?;
+        let names_changed = old.team_a_name != settings.team_a_name || old.team_b_name != settings.team_b_name;
+        drop(old);
+
+        if names_changed {
+            if let Ok(mut ms) = match_state.lock() {
+                if ms.status == game::MatchStatus::Idle {
+                    ms.team_a_name = settings.team_a_name.clone();
+                    ms.team_b_name = settings.team_b_name.clone();
+                    emit_state(&app, &ms);
+                }
+            }
+        }
     }
     settings_state
         .lock()

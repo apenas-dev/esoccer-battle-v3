@@ -37,6 +37,12 @@ type Page = 'match' | 'settings' | 'help' | 'history';
 
 export function App() {
   const [page, setPage] = useState<Page>('match');
+  const [matchKey, setMatchKey] = useState(0);
+
+  const handleBackToMatch = () => {
+    setMatchKey((k) => k + 1);
+    setPage('match');
+  };
 
   if (!isTauri()) {
     // Modo não-Tauri: renderiza MatchPage genérica
@@ -52,16 +58,17 @@ export function App() {
     <Suspense fallback={<Fallback />}>
       {page === 'match' ? (
         <MatchPageConnected
+          key={matchKey}
           onNavigateSettings={() => setPage('settings')}
           onNavigateHelp={() => setPage('help')}
           onNavigateHistory={() => setPage('history')}
         />
       ) : page === 'help' ? (
-        <HelpPage onBack={() => setPage('match')} />
+        <HelpPage onBack={handleBackToMatch} />
       ) : page === 'history' ? (
-        <HistoryPage onBack={() => setPage('match')} />
+        <HistoryPage onBack={handleBackToMatch} />
       ) : (
-        <SettingsPage onBack={() => setPage('match')} />
+        <SettingsPage onBack={handleBackToMatch} />
       )}
     </Suspense>
   );
