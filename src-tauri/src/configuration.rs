@@ -1,56 +1,55 @@
 use std::path::PathBuf;
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use tracing::warn;
 
 fn config_path<D>() -> PathBuf {
     let dir = crate::project_directory().config_dir().to_path_buf();
-    std::fs::create_dir_all(&dir).expect("Can't create config directory");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        warn!("Failed to create config directory: {e}");
+    }
     dir.join(format!("{}.bin", std::any::type_name::<D>()).replace("::", "-"))
 }
 
-pub fn save<D: Serialize>(data: &D) {
-    let data = bincode::serialize(data).expect("Can't serialize config");
-    std::fs::write(config_path::<D>(), data).expect("Can't save configuration");
+pub fn save<D: Serialize>(data: &D) -> anyhow::Result<()> {
+    let bytes = bincode::serialize(data)?;
+    std::fs::write(config_path::<D>(), bytes)?;
+    Ok(())
 }
 
-fn load<D: DeserializeOwned>() -> anyhow::Result<D> {
+pub fn load<D: DeserializeOwned>() -> anyhow::Result<D> {
     let data = std::fs::read(config_path::<D>())?;
     Ok(bincode::deserialize(&data)?)
 }
 
-fn data_dir() -> PathBuf {
-    let data_dir = crate::project_directory().data_dir().to_path_buf();
-    std::fs::create_dir_all(&data_dir).expect("Can't create data directory");
-    data_dir
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SavePathConfig {
-    pub save_path: PathBuf,
+pub struct AppSettings {
+    pub mic_device: Option<String>,
+    pub model: String,
+    pub language: String,
+    pub voice_threshold: f32,
+    pub theme: String,
+    pub team_a_name: String,
+    pub team_b_name: String,
 }
 
-impl Default for SavePathConfig {
-    fn default() -> Self {
-        Self {
-            save_path: data_dir(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GeneralConfig {
-    pub save_to: SavePathConfig,
-}
-
-impl Default for GeneralConfig {
+impl Default for AppSettings {
     fn default() -> Self {
         if let Ok(this) = load::<Self>() {
             return this;
         }
         let this = Self {
-            save_to: SavePathConfig::default(),
+            mic_device: None,
+            model: "base".to_owned(),
+            language: "pt".to_owned(),
+            voice_threshold: 0.3,
+            theme: "dark".to_owned(),
+            team_a_name: "Time A".to_owned(),
+            team_b_name: "Time B".to_owned(),
         };
-        save(&this);
+        if let Err(e) = save(&this) {
+            warn!("Failed to save default settings: {e}");
+        }
         this
     }
 }

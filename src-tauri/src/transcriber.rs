@@ -31,16 +31,16 @@ impl Category {
     }
 }
 
-pub enum Type {
+pub enum ModelType {
     Whisper,
     Quantized,
 }
 
-impl Type {
+impl ModelType {
     pub fn name(&self) -> &'static str {
         match self {
-            Type::Whisper => "Whisper",
-            Type::Quantized => "Quantized",
+            ModelType::Whisper => "Whisper",
+            ModelType::Quantized => "Quantized",
         }
     }
 }
@@ -55,19 +55,17 @@ pub enum Model {
     BaseEnWhisper,
     BaseQuantized,
     BaseEnQuantized,
-    SmallWhisper,
-    SmallEnWhisper,
-    SmallQuantized,
-    SmallEnQuantized,
-    SmallDiarize,
-    MediumWhisper,
-    MediumQuantized,
-    MediumEnQuantized,
-    LargeWhisper,
-    LargeQuantized,
 }
 
 impl Model {
+    pub fn default_model() -> Self {
+        Self::BaseWhisper
+    }
+
+    pub fn recommended_models() -> Vec<Self> {
+        vec![Self::TinyWhisper, Self::BaseWhisper]
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             Self::TinyWhisper => "Tiny",
@@ -78,16 +76,6 @@ impl Model {
             Self::BaseEnWhisper => "Base English",
             Self::BaseQuantized => "Base (Quantized)",
             Self::BaseEnQuantized => "Base English (Quantized)",
-            Self::SmallWhisper => "Small",
-            Self::SmallEnWhisper => "Small English",
-            Self::SmallQuantized => "Small (Quantized)",
-            Self::SmallEnQuantized => "Small English (Quantized)",
-            Self::SmallDiarize => "Small Diarize",
-            Self::MediumWhisper => "Medium",
-            Self::MediumQuantized => "Medium (Quantized)",
-            Self::MediumEnQuantized => "Medium English (Quantized)",
-            Self::LargeWhisper => "Large",
-            Self::LargeQuantized => "Large (Quantized)",
         }
     }
 
@@ -101,16 +89,6 @@ impl Model {
             Self::BaseEnWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin?download=true",
             Self::BaseQuantized => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin?download=true",
             Self::BaseEnQuantized => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin?download=true",
-            Self::SmallWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin?download=true",
-            Self::SmallEnWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin?download=true",
-            Self::SmallQuantized => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin?download=true",
-            Self::SmallEnQuantized => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en-q5_1.bin?download=true",
-            Self::SmallDiarize => "https://huggingface.co/akashmjn/tinydiarize-whisper.cpp/resolve/main/ggml-small.en-tdrz.bin?download=true",
-            Self::MediumWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin?download=true",
-            Self::MediumQuantized => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin?download=true",
-            Self::MediumEnQuantized => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en-q5_0.bin?download=true",
-            Self::LargeWhisper => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin?download=true",
-            Self::LargeQuantized => "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-q5_0.bin?download=true",
         }
     }
 
@@ -124,16 +102,6 @@ impl Model {
             Self::BaseEnWhisper => "base-en.bin",
             Self::BaseQuantized => "base-q.bin",
             Self::BaseEnQuantized => "base-en-q.bin",
-            Self::SmallWhisper => "small.bin",
-            Self::SmallEnWhisper => "small-en.bin",
-            Self::SmallQuantized => "small-q.bin",
-            Self::SmallEnQuantized => "small-en-q.bin",
-            Self::SmallDiarize => "small-diar.bin",
-            Self::MediumWhisper => "medium.bin",
-            Self::MediumQuantized => "medium-q.bin",
-            Self::MediumEnQuantized => "medium-en.bin",
-            Self::LargeWhisper => "large.bin",
-            Self::LargeQuantized => "large-q.bin",
         }
     }
 
@@ -141,9 +109,6 @@ impl Model {
         match self {
             Self::TinyWhisper | Self::TinyEnWhisper | Self::TinyQuantized | Self::TinyEnQuantized => 390,
             Self::BaseWhisper | Self::BaseEnWhisper | Self::BaseQuantized | Self::BaseEnQuantized => 500,
-            Self::SmallWhisper | Self::SmallEnWhisper | Self::SmallQuantized | Self::SmallEnQuantized | Self::SmallDiarize => 1000,
-            Self::MediumWhisper | Self::MediumQuantized | Self::MediumEnQuantized => 2600,
-            Self::LargeWhisper | Self::LargeQuantized => 4700,
         }
     }
 
@@ -160,12 +125,6 @@ impl Model {
             Self::TinyQuantized | Self::TinyEnQuantized => 33,
             Self::BaseWhisper | Self::BaseEnWhisper => 148,
             Self::BaseQuantized | Self::BaseEnQuantized => 60,
-            Self::SmallWhisper | Self::SmallEnWhisper | Self::SmallDiarize => 488,
-            Self::SmallQuantized | Self::SmallEnQuantized => 190,
-            Self::MediumWhisper => 1530,
-            Self::MediumQuantized | Self::MediumEnQuantized => 539,
-            Self::LargeWhisper => 3100,
-            Self::LargeQuantized => 1080,
         }
     }
 
@@ -179,21 +138,16 @@ impl Model {
 
     pub fn category(&self) -> Category {
         match self {
-            Self::TinyWhisper | Self::BaseWhisper | Self::SmallWhisper
-            | Self::MediumWhisper | Self::MediumQuantized
-            | Self::LargeWhisper | Self::LargeQuantized => Category::Recommended,
+            Self::TinyWhisper | Self::BaseWhisper => Category::Recommended,
             _ => Category::Other,
         }
     }
 
-    pub fn r#type(&self) -> Type {
+    pub fn model_type(&self) -> ModelType {
         match self {
             Self::TinyQuantized | Self::TinyEnQuantized
-            | Self::BaseQuantized | Self::BaseEnQuantized
-            | Self::SmallQuantized | Self::SmallEnQuantized
-            | Self::SmallDiarize | Self::MediumQuantized
-            | Self::MediumEnQuantized | Self::LargeQuantized => Type::Quantized,
-            _ => Type::Whisper,
+            | Self::BaseQuantized | Self::BaseEnQuantized => ModelType::Quantized,
+            _ => ModelType::Whisper,
         }
     }
 }

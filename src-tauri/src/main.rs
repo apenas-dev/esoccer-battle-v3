@@ -7,7 +7,7 @@ mod configuration;
 mod recorder;
 mod transcriber;
 
-type GeneralConfig = std::sync::Arc<std::sync::Mutex<configuration::GeneralConfig>>;
+type Settings = std::sync::Arc<std::sync::Mutex<configuration::AppSettings>>;
 
 fn project_directory() -> directories::ProjectDirs {
     directories::ProjectDirs::from("com.esoccer", "ESoccer", "ESoccerBattle")
@@ -20,14 +20,16 @@ fn list_microphone() -> Vec<recorder::DeviceResult> {
 }
 
 #[tauri::command]
-fn get_general_config(general_config: tauri::State<'_, GeneralConfig>) -> configuration::GeneralConfig {
-    general_config.lock().unwrap().clone()
+fn get_settings(settings: tauri::State<'_, Settings>) -> configuration::AppSettings {
+    settings.lock().unwrap().clone()
 }
 
 #[tauri::command]
-fn set_general_config(general_config_state: tauri::State<'_, GeneralConfig>, general_config: configuration::GeneralConfig) {
-    configuration::save(&general_config);
-    *general_config_state.lock().unwrap() = general_config;
+fn set_settings(settings_state: tauri::State<'_, Settings>, settings: configuration::AppSettings) {
+    if let Err(e) = configuration::save(&settings) {
+        tracing::warn!("Failed to save settings: {e}");
+    }
+    *settings_state.lock().unwrap() = settings;
 }
 
 #[tauri::command]
@@ -81,7 +83,7 @@ fn list_models() -> Vec<serde_json::Value> {
                 "is_downloaded": model.is_downloaded(),
                 "can_run": model.can_run(),
                 "category": model.category(),
-                "type_name": model.r#type().name(),
+                "type_name": model.model_type().name(),
             })
         })
         .collect()
@@ -96,17 +98,17 @@ fn list_model_categories() -> Vec<serde_json::Value> {
 }
 
 fn main() {
-    let general_config: GeneralConfig =
-        std::sync::Arc::new(std::sync::Mutex::new(configuration::GeneralConfig::default()));
+    let settings: Settings =
+        std::sync::Arc::new(std::sync::Mutex::new(configuration::AppSettings::default()));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(general_config)
+        .manage(settings)
         .invoke_handler(tauri::generate_handler![
             list_microphone,
-            get_general_config,
-            set_general_config,
+            get_settings,
+            set_settings,
             download_model,
             list_models,
             list_model_categories,
