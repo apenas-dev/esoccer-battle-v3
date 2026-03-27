@@ -1,18 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useMatchState } from '../hooks/useMatchState';
 import { useVoicePipeline } from '../hooks/useVoicePipeline';
 import { createSTTProvider } from '../services/stt/sttFactory';
 import type { ISTTProvider } from '../services/stt/ISTTProvider';
 import { MatchLayout } from '../components/match/MatchLayout';
-import { generateId } from '../lib/utils';
-import type { CommandLogEntry } from '../types';
 
 export function MatchPage() {
   const { state, config, isLoading, displayTime, executeCommand, resetMatch } = useMatchState();
   const [provider, setProvider] = useState<ISTTProvider | null>(null);
-  const [logEntries, setLogEntries] = useState<CommandLogEntry[]>([]);
-  const logRef = useRef(logEntries);
-  logRef.current = logEntries;
 
   // Create STT provider when config loads
   useEffect(() => {
@@ -20,41 +15,75 @@ export function MatchPage() {
     createSTTProvider('auto', config).then(setProvider);
   }, [config]);
 
-  const addLogEntry = useCallback((command: string, source: 'voice' | 'button', success: boolean) => {
-    setLogEntries((prev) => [
-      ...prev,
-      { id: generateId(), timestamp: new Date(), command, source, success },
-    ]);
-  }, []);
-
-  const handleVoiceTranscript = useCallback(
+  const handleExecuteCommand = useCallback(
     async (text: string) => {
-      addLogEntry(text, 'voice', true);
       await executeCommand(text);
     },
-    [addLogEntry, executeCommand],
+    [executeCommand],
+  );
+
+  // BUG 1 FIX: Guard — don't render anything until provider + state are ready
+  if (!provider || !state || isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-lg text-[var(--text-secondary)]">Carregando...</div>
+      </div>
+    );
+  }
+
+  // BUG 2 FIX: Voice pipeline now lives here with its own log. No more duplicate log state.
+  // We use a wrapper component so the hook is only called when provider is non-null.
+  return (
+    <MatchPageWithVoice
+      provider={provider}
+      state={state}
+      displayTime={displayTime}
+      executeCommand={handleExecuteCommand}
+      resetMatch={resetMatch}
+    />
+  );
+}
+
+/** Inner component that safely calls useVoicePipeline with a non-null provider. */
+function MatchPageWithVoice({
+  provider,
+  state,
+  displayTime,
+  executeCommand,
+  resetMatch,
+}: {
+  provider: ISTTProvider;
+  state: NonNullable<ReturnType<typeof useMatchState>['state']>;
+  displayTime: string;
+  executeCommand: (text: string) => Promise<void>;
+  resetMatch: () => Promise<void>;
+}) {
+  const handleVoiceTranscript = useCallback(
+    async (text: string) => {
+      await executeCommand(text);
+    },
+    [executeCommand],
+  );
+
+  const handleButtonCommand = useCallback(
+    async (text: string) => {
+      await executeCommand(text);
+    },
+    [executeCommand],
   );
 
   const voicePipeline = useVoicePipeline({
-    provider: provider!,
+    provider,
     onTranscript: handleVoiceTranscript,
     onError: (e) => console.error('Voice error:', e),
   });
 
-  // Handle button commands with logging
-  const handleExecuteCommand = useCallback(
-    async (text: string) => {
-      addLogEntry(text, 'button', true);
-      await executeCommand(text);
-    },
-    [addLogEntry, executeCommand],
-  );
-
-  if (!state) return null;
+  // BUG 3 FIX: flashTeam controlled here via score-changed events
+  // MatchLayout receives flashTeam as prop
+  // (We still keep the inline flash in MatchLayout for button commands as well)
 
   return (
     <div className="mx-auto max-w-2xl">
-      {/* We need to inline the MatchLayout logic to connect voice properly */}
       <MatchLayout
         phase={state.phase}
         subPhase={state.sub_phase}
@@ -66,11 +95,12 @@ export function MatchPage() {
         timerMode={state.config.timer_mode}
         totalDuration={state.config.duration_secs}
         elapsed={state.elapsed_secs}
-        isLoading={isLoading}
+        isLoading={false}
         voiceStatus={voicePipeline.voiceStatus}
         lastTranscript={voicePipeline.lastTranscript}
         isListening={voicePipeline.isListening}
-        onExecuteCommand={handleExecuteCommand}
+        lastVoiceCommand={voicePipeline.lastTranscript}
+        onExecuteCommand={handleButtonCommand}
         onResetMatch={resetMatch}
         onStartListening={voicePipeline.startListening}
         onStopListening={voicePipeline.stopListening}

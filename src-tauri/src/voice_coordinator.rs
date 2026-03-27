@@ -64,7 +64,7 @@ impl VoiceCoordinator {
 
     /// Fim PTT: para captura, emite voice-status event via Tauri
     /// A transcrição acontece no frontend (WebSpeech API) ou via whisper direto
-    pub fn stop_listening(&mut self, app: &AppHandle) -> Result<(), VoiceError> {
+    pub fn stop_listening(&mut self, _app: &AppHandle) -> Result<Option<String>, VoiceError> {
         if !self.is_listening {
             return Err(VoiceError::NotListening);
         }
@@ -76,7 +76,7 @@ impl VoiceCoordinator {
 
         if audio_buffer.samples.is_empty() {
             // No audio captured — emit silence
-            let _ = app.emit(
+            let _ = _app.emit(
                 "voice-status",
                 VoiceStatusPayload {
                     status: "silence".into(),
@@ -84,11 +84,11 @@ impl VoiceCoordinator {
                     error: None,
                 },
             );
-            return Ok(());
+            return Ok(None);
         }
 
         // Emit processing status — frontend will handle transcription via WebSpeech/Whisper
-        let _ = app.emit(
+        let _ = _app.emit(
             "voice-status",
             VoiceStatusPayload {
                 status: "processing".into(),
@@ -103,7 +103,7 @@ impl VoiceCoordinator {
         );
 
         // FIX 7: Emit the captured audio buffer so frontend STT can use it
-        let _ = app.emit(
+        let _ = _app.emit(
             "voice-buffer",
             VoiceBufferPayload {
                 samples: audio_buffer.samples,
@@ -113,11 +113,9 @@ impl VoiceCoordinator {
         );
 
         // Note: The actual transcription is handled by the frontend STT provider.
-
-        // Note: The actual transcription is handled by the frontend STT provider.
         // The backend just captures and notifies. The frontend then calls
         // execute_command with the transcript.
-        Ok(())
+        Ok(None)
     }
 
     /// Verifica se está ouvindo

@@ -93,41 +93,17 @@ export function useMatchState(): UseMatchStateReturn {
             : prev,
         );
       });
-      const un5 = await listen<string>('timer-control', (e) => {
-        // Timer control events handled by local timer logic
-        if (e.payload === 'stop') {
-          // Timer stopped by backend
-        }
-      });
 
-      unlisteners = [un1, un2, un3, un4, un5];
+      // BUG 6 FIX: Removed local timer (setInterval). Backend is the single source of truth.
+      // Time is updated via 'time-updated' events from the backend (un3 above).
+
+      unlisteners = [un1, un2, un3, un4];
     })();
 
     return () => {
       unlisteners.forEach((u) => u());
     };
   }, [loadState, loadConfig]);
-
-  // Local timer
-  useEffect(() => {
-    if (!state || state.phase !== 'playing') return;
-
-    const interval = setInterval(() => {
-      setState((prev) => {
-        if (!prev || prev.phase !== 'playing') return prev;
-        const newElapsed = prev.elapsed_secs + 1;
-        const duration = prev.config.duration_secs;
-
-        // Auto-finish on countdown timeout
-        if (prev.config.timer_mode === 'countdown' && newElapsed >= duration) {
-          return { ...prev, elapsed_secs: duration, phase: 'finished' };
-        }
-        return { ...prev, elapsed_secs: newElapsed };
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [state?.phase]);
 
   // Compute displayTime
   const displayTime = (() => {

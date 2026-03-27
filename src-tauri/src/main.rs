@@ -54,9 +54,10 @@ async fn start_listening(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn stop_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+async fn stop_listening(state: State<'_, AppState>, app: AppHandle) -> Result<Option<String>, String> {
     let mut voice = state.voice.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
-    voice.stop_listening(&app).map_err(|e| e.to_string())
+    let transcript = voice.stop_listening(&app).map_err(|e| e.to_string())?;
+    Ok(transcript)
 }
 
 #[tauri::command]
@@ -87,6 +88,16 @@ async fn get_state(state: State<'_, AppState>) -> Result<MatchState, String> {
 #[tauri::command]
 async fn get_history(limit: Option<usize>) -> Result<Vec<history::HistoryEntry>, String> {
     history::list(limit).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn remove_history(id: String) -> Result<(), String> {
+    history::remove(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn clear_history() -> Result<(), String> {
+    history::clear().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -150,6 +161,8 @@ fn main() {
             update_config,
             get_state,
             get_history,
+            remove_history,
+            clear_history,
             list_mic_devices,
             get_available_commands,
             reset_match,

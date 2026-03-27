@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { GamePhase, PlayingSubPhase, TimerMode, CommandLogEntry } from '../../types';
 import { Scoreboard } from './Scoreboard';
 import { Timer } from './Timer';
@@ -22,10 +22,19 @@ interface MatchLayoutProps {
   voiceStatus: import('../../types').VoiceStatus;
   lastTranscript: string | null;
   isListening: boolean;
+  /** BUG 2 FIX: Latest voice command text so we can log it. */
+  lastVoiceCommand: string | null;
   onExecuteCommand: (text: string) => Promise<void>;
   onResetMatch: () => Promise<void>;
   onStartListening: () => void;
   onStopListening: () => void;
+}
+
+function detectFlashTeam(text: string): 'a' | 'b' | null {
+  const lower = text.toLowerCase();
+  if (lower.includes('gol') && lower.includes('a')) return 'a';
+  if (lower.includes('gol') && lower.includes('b')) return 'b';
+  return null;
 }
 
 export function MatchLayout({
@@ -43,16 +52,41 @@ export function MatchLayout({
   voiceStatus,
   lastTranscript,
   isListening,
+  lastVoiceCommand,
   onExecuteCommand,
   onResetMatch,
   onStartListening,
   onStopListening,
 }: MatchLayoutProps) {
   const [flashTeam, setFlashTeam] = useState<'a' | 'b' | null>(null);
+  // BUG 2 FIX: Single source of truth for command log — lives here, receives both button and voice commands
   const [logEntries, setLogEntries] = useState<CommandLogEntry[]>([]);
+  // Track last logged voice command to avoid duplicates
+  const [loggedVoiceCommand, setLoggedVoiceCommand] = useState<string | null>(null);
+
+  // BUG 2 + BUG 3 FIX: Log voice commands and trigger flash when a new voice transcript arrives
+  useEffect(() => {
+    if (lastVoiceCommand && lastVoiceCommand !== loggedVoiceCommand) {
+      setLoggedVoiceCommand(lastVoiceCommand);
+      setLogEntries((prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          timestamp: new Date(),
+          command: lastVoiceCommand,
+          source: 'voice',
+          success: true,
+        },
+      ]);
+      const flash = detectFlashTeam(lastVoiceCommand);
+      if (flash) {
+        setFlashTeam(flash);
+        setTimeout(() => setFlashTeam(null), 600);
+      }
+    }
+  }, [lastVoiceCommand, loggedVoiceCommand]);
 
   const handleCommand = async (text: string) => {
-    const success = text !== '';
     setLogEntries((prev) => [
       ...prev,
       {
@@ -60,48 +94,19 @@ export function MatchLayout({
         timestamp: new Date(),
         command: text,
         source: 'button',
-        success,
+        success: text !== '',
       },
     ]);
 
-    // Flash effect for goals
-    if (text.includes('gol') && text.toLowerCase().includes('a')) {
-      setFlashTeam('a');
-      setTimeout(() => setFlashTeam(null), 600);
-    } else if (text.includes('gol') && text.toLowerCase().includes('b')) {
-      setFlashTeam('b');
+    // BUG 3 FIX: Flash effect for goal button commands
+    const flash = detectFlashTeam(text);
+    if (flash) {
+      setFlashTeam(flash);
       setTimeout(() => setFlashTeam(null), 600);
     }
 
     await onExecuteCommand(text);
   };
-
-  const handleVoiceTranscript = async (text: string) => {
-    setLogEntries((prev) => [
-      ...prev,
-      {
-        id: generateId(),
-        timestamp: new Date(),
-        command: text,
-        source: 'voice',
-        success: true,
-      },
-    ]);
-
-    if (text.toLowerCase().includes('gol') && text.toLowerCase().includes('a')) {
-      setFlashTeam('a');
-      setTimeout(() => setFlashTeam(null), 600);
-    } else if (text.toLowerCase().includes('gol') && text.toLowerCase().includes('b')) {
-      setFlashTeam('b');
-      setTimeout(() => setFlashTeam(null), 600);
-    }
-
-    await onExecuteCommand(text);
-  };
-
-  // Expose voice transcript handler (child VoiceIndicator calls parent via props)
-  // We handle this in MatchPage instead, so we just pass through
-  void handleVoiceTranscript;
 
   if (isLoading) {
     return (
@@ -151,5 +156,4 @@ export function MatchLayout({
   );
 }
 
-// Re-export handleVoiceTranscript as a way for MatchPage to connect voice to command log
 export type { MatchLayoutProps };
