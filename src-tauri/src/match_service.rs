@@ -53,7 +53,7 @@ pub struct MatchSnapshot {
 /// Pure function: deterministic, no side-effects, thread-safe.
 /// Returns `[NoOp]` for commands issued in invalid phases.
 pub fn process(state: &MatchState, command: GameCommand) -> MatchResult {
-    match command {
+    let result = match command {
         GameCommand::Start => process_start(state),
         GameCommand::GoalA => process_goal_a(state),
         GameCommand::GoalB => process_goal_b(state),
@@ -64,7 +64,17 @@ pub fn process(state: &MatchState, command: GameCommand) -> MatchResult {
         GameCommand::Resolve => process_resolve(state),
         GameCommand::VoltaSeis => process_volta_seis(state),
         GameCommand::Reset => process_reset(state),
+    };
+
+    for (i, action) in result.actions.iter().enumerate() {
+        eprintln!("[SERVICE] action[{}]: {:?}", i, action);
     }
+    eprintln!(
+        "[SERVICE] process({:?}) → phase={:?}, actions={}",
+        command, result.new_state.phase, result.actions.len()
+    );
+
+    result
 }
 
 // ── Command handlers (each is a pure transition) ─────────────────────────

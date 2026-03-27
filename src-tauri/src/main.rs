@@ -11,10 +11,13 @@ use tauri::{Emitter, Listener, State};
 mod audio;
 mod buffer;
 mod capture;
+mod command;
+mod config;
 mod configuration;
 mod game;
 mod parser;
 mod match_history;
+mod match_service;
 mod on_demand_transcriber;
 mod transcriber;
 
@@ -211,19 +214,19 @@ fn execute_command(
     // Play sound
     match cmd {
         parser::GameCommand::GoalA | parser::GameCommand::GoalB => {
-            audio::play_sound(audio::GameSound::Goal);
+            audio::play(audio::SoundName::Goal);
         }
         parser::GameCommand::StartMatch => {
-            audio::play_sound(audio::GameSound::WhistleStart);
+            audio::play(audio::SoundName::Whistle);
         }
         parser::GameCommand::EndMatch => {
-            audio::play_sound(audio::GameSound::WhistleEnd);
+            audio::play(audio::SoundName::Whistle);
         }
         parser::GameCommand::Restart => {
-            audio::play_sound(audio::GameSound::SixMeters);
+            audio::play(audio::SoundName::SixMeters);
         }
         parser::GameCommand::Challenge => {
-            audio::play_sound(audio::GameSound::Challenge);
+            audio::play(audio::SoundName::Challenge);
         }
         parser::GameCommand::PauseMatch | parser::GameCommand::ResumeMatch | parser::GameCommand::ResolveChallenge => {
             // no specific sound
@@ -319,7 +322,7 @@ fn start_match(
     }
 
     // Play start whistle
-    audio::play_sound(audio::GameSound::WhistleStart);
+    audio::play(audio::SoundName::Whistle);
 
     Ok(())
 }
@@ -350,7 +353,7 @@ fn end_match(
     let state = with_match_mut_cloned(&app, &match_state, game::end_match)?;
 
     stop_timer(&timer);
-    audio::play_sound(audio::GameSound::WhistleEnd);
+    audio::play(audio::SoundName::Whistle);
 
     // Auto-stop voice pipeline (non-fatal)
     stop_listening_inner(pipeline.inner());
@@ -367,7 +370,7 @@ fn goal_a(
     match_state: State<'_, MatchState>,
 ) -> Result<(), String> {
     with_match_mut(&app, &match_state, game::goal_a)?;
-    audio::play_sound(audio::GameSound::Goal);
+    audio::play(audio::SoundName::Goal);
     Ok(())
 }
 
@@ -377,7 +380,7 @@ fn goal_b(
     match_state: State<'_, MatchState>,
 ) -> Result<(), String> {
     with_match_mut(&app, &match_state, game::goal_b)?;
-    audio::play_sound(audio::GameSound::Goal);
+    audio::play(audio::SoundName::Goal);
     Ok(())
 }
 
@@ -409,7 +412,7 @@ fn restart(
     }
 
     with_match_mut(&app, &match_state, game::restart)?;
-    audio::play_sound(audio::GameSound::SixMeters);
+    audio::play(audio::SoundName::SixMeters);
 
     // Re-spawn timer since we're still Playing
     let guard = spawn_timer(app.clone(), match_state.inner().clone());
@@ -429,7 +432,7 @@ fn challenge(
     match_state: State<'_, MatchState>,
 ) -> Result<(), String> {
     with_match_mut(&app, &match_state, game::challenge)?;
-    audio::play_sound(audio::GameSound::Challenge);
+    audio::play(audio::SoundName::Challenge);
     Ok(())
 }
 
@@ -1067,6 +1070,11 @@ fn main() {
         .manage(Mutex::new(None::<TimerGuard>))
         .manage(Arc::new(Mutex::new(None::<capture::AudioStream>)))
         .setup(|_app| {
+            // Initialize audio subsystem at startup (not LazyLock).
+            audio::init();
+            if let Err(e) = audio::preload_sounds() {
+                eprintln!("[AUDIO] preload warning: {e}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

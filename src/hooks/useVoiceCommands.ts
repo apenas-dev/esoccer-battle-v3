@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { createSTTProvider, type STTProviderName } from '../services/stt';
+import { createSTTProvider, type STTBackend } from '../services/stt';
+import type { AppConfig } from '../types';
 
 export interface VoiceCommandState {
   lastText: string;
@@ -14,97 +15,64 @@ const idleState: VoiceCommandState = {
 };
 
 export function useVoiceCommands(
-  preference?: STTProviderName,
+  backend?: STTBackend,
+  config?: AppConfig,
 ): VoiceCommandState & {
-  startListening: () => void;
+  startListening: () => Promise<void>;
   stopListening: () => Promise<string>;
 } {
   const [state, setState] = useState<VoiceCommandState>(idleState);
-  const providerRef = useRef<ReturnType<typeof createSTTProvider> | null>(null);
-  const resolveRef = useRef<((text: string) => void) | null>(null);
-  const unsubsRef = useRef<Array<() => void>>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const providerRef = useRef<any>(null);
+  const readyRef = useRef(false);
 
-  // Create provider once on mount
   useEffect(() => {
-    providerRef.current = createSTTProvider(preference);
-    setState((prev) => ({
-      ...prev,
-      providerName: providerRef.current!.name,
-    }));
+    let cancelled = false;
+
+    if (!config) return;
+
+    createSTTProvider(backend ?? 'auto', config).then((provider) => {
+      if (cancelled) return;
+      providerRef.current = provider;
+      readyRef.current = true;
+      setState((prev) => ({ ...prev, providerName: provider.name }));
+
+      provider.onStatusChange = (status) => {
+        setState((prev) => ({
+          ...prev,
+          isListening: status === 'listening',
+        }));
+      };
+    }).catch((err) => {
+      console.error('[STT] Provider creation failed:', err);
+    });
+
     return () => {
-      unsubsRef.current.forEach((fn) => fn());
-      unsubsRef.current = [];
-      providerRef.current?.stop();
+      cancelled = true;
+      readyRef.current = false;
+      providerRef.current?.cancel();
       providerRef.current = null;
     };
-  }, [preference]);
+  }, [backend, config]);
 
-  const startListening = useCallback(() => {
+  const startListening = useCallback(async () => {
     const provider = providerRef.current;
-    if (!provider || !provider.isAvailable()) return;
+    if (!provider || !readyRef.current) return;
 
-    // Subscribe to results
-    const unsubResult = provider.onResult((text, isFinal) => {
-      if (isFinal && resolveRef.current) {
-        resolveRef.current(text);
-        resolveRef.current = null;
-      }
-      if (isFinal) {
-        setState((prev) => ({ ...prev, lastText: text }));
-      }
-    });
-
-    const unsubError = provider.onError((error) => {
-      console.error(`[STT:${provider.name}]`, error);
-      // On error, resolve with empty so the stop promise doesn't hang
-      if (resolveRef.current) {
-        resolveRef.current('');
-        resolveRef.current = null;
-      }
-    });
-
-    provider.start({ language: 'pt-BR', continuous: false });
-
-    setState((prev) => ({ ...prev, isListening: true }));
-
-    // Store unsub functions in a separate ref — never mutate the provider instance
-    unsubsRef.current = [unsubResult, unsubError];
+    await provider.start();
   }, []);
 
-  const stopListening = useCallback((): Promise<string> => {
-    return new Promise((resolve) => {
-      const provider = providerRef.current;
-      if (!provider) {
-        resolve('');
-        return;
-      }
+  const stopListening = useCallback(async (): Promise<string> => {
+    const provider = providerRef.current;
+    if (!provider) return '';
 
-      resolveRef.current = resolve;
-
-      // Set a timeout so the promise doesn't hang forever if no final result arrives
-      const timeout = setTimeout(() => {
-        if (resolveRef.current) {
-          resolveRef.current('');
-          resolveRef.current = null;
-        }
-      }, 2000);
-
-      // Wrap resolve to also clear the timeout
-      const originalResolve = resolve;
-      resolveRef.current = (text: string) => {
-        clearTimeout(timeout);
-        originalResolve(text);
-      };
-
-      // Stop the provider — callbacks stay alive so final results can resolve the promise
-      provider.stop();
-
-      // Clean up subscriptions after stopping
-      unsubsRef.current.forEach((fn) => fn());
-      unsubsRef.current = [];
-
-      setState((prev) => ({ ...prev, isListening: false }));
-    });
+    try {
+      const text = await provider.stop();
+      setState((prev) => ({ ...prev, lastText: text }));
+      return text;
+    } catch {
+      return '';
+    }
   }, []);
 
   return { ...state, startListening, stopListening };

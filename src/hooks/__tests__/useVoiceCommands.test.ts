@@ -1,280 +1,129 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-// Mock tauri before any STT imports
-vi.mock('../../../lib/tauri', () => ({
-  isTauri: () => false,
-  startRecording: vi.fn().mockResolvedValue(undefined),
-  stopRecordingAndTranscribe: vi.fn().mockResolvedValue(undefined),
-  onVoiceText: vi.fn().mockResolvedValue(() => {}),
-  onCommandUnknown: vi.fn().mockResolvedValue(() => {}),
+// Mock @tauri-apps/api before any STT imports
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
-// We need to mock createSTTProvider to control behavior
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
+
 const mockProvider = {
   name: 'mock-provider',
-  isAvailable: vi.fn(() => true),
-  start: vi.fn(),
-  stop: vi.fn(),
-  onResult: vi.fn(() => vi.fn()),
-  onError: vi.fn(() => vi.fn()),
+  isAvailable: vi.fn(() => Promise.resolve(true)),
+  start: vi.fn(() => Promise.resolve()),
+  stop: vi.fn(() => Promise.resolve('gol do time a')),
+  cancel: vi.fn(),
+  onStatusChange: undefined as ((status: 'idle' | 'listening' | 'processing') => void) | undefined,
 };
 
 vi.mock('../../services/stt', () => ({
-  createSTTProvider: vi.fn(() => mockProvider),
+  createSTTProvider: vi.fn(() => Promise.resolve(mockProvider)),
 }));
 
 import { useVoiceCommands } from '../useVoiceCommands';
 import { createSTTProvider } from '../../services/stt';
+import type { VoiceCommandState } from '../useVoiceCommands';
 
 const mockedCreateSTTProvider = vi.mocked(createSTTProvider);
+
+const mockConfig = {
+  mic_device: null,
+  whisper_model: 'base' as const,
+  language: 'pt_br' as const,
+  voice_threshold: 0.5,
+  team_a_name: 'A',
+  team_b_name: 'B',
+  theme: 'dark' as const,
+  match_duration_secs: 300,
+  timer_mode: 'countdown' as const,
+  volume: 0.8,
+};
 
 describe('useVoiceCommands', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockProvider.isAvailable.mockReturnValue(true);
-    mockProvider.start.mockClear();
-    mockProvider.stop.mockClear();
-    mockProvider.onResult.mockClear();
-    mockProvider.onError.mockClear();
+    mockProvider.start.mockResolvedValue(undefined);
+    mockProvider.stop.mockResolvedValue('gol do time a');
+    mockProvider.cancel.mockClear();
+    mockProvider.onStatusChange = undefined;
   });
 
-  it('creates provider on mount', () => {
-    renderHook(() => useVoiceCommands());
-    expect(mockedCreateSTTProvider).toHaveBeenCalledTimes(1);
-  });
-
-  it('creates provider with preference', () => {
-    renderHook(() => useVoiceCommands('whisper'));
-    expect(mockedCreateSTTProvider).toHaveBeenCalledWith('whisper');
-  });
-
-  it('returns correct initial state', () => {
-    const { result } = renderHook(() => useVoiceCommands());
-    expect(result.current.lastText).toBe('');
-    expect(result.current.isListening).toBe(false);
-    expect(result.current.providerName).toBe('mock-provider');
-    expect(typeof result.current.startListening).toBe('function');
-    expect(typeof result.current.stopListening).toBe('function');
-  });
-
-  it('startListening sets isListening to true', () => {
-    const { result } = renderHook(() => useVoiceCommands());
-
-    act(() => {
-      result.current.startListening();
-    });
-
-    expect(result.current.isListening).toBe(true);
-    expect(mockProvider.start).toHaveBeenCalledWith({ language: 'pt-BR', continuous: false });
-  });
-
-  it('startListening does nothing when provider unavailable', () => {
-    mockProvider.isAvailable.mockReturnValue(false);
-    const { result } = renderHook(() => useVoiceCommands());
-
-    act(() => {
-      result.current.startListening();
-    });
-
-    expect(result.current.isListening).toBe(false);
-    expect(mockProvider.start).not.toHaveBeenCalled();
-  });
-
-  it('stopListening sets isListening to false', async () => {
-    // Simulate a final result callback
-    let resultCallback: ((text: string, isFinal: boolean) => void) | null = null;
-    mockProvider.onResult.mockImplementation((cb) => {
-      resultCallback = cb;
-      return vi.fn();
-    });
-
-    const { result } = renderHook(() => useVoiceCommands());
-
-    // Start listening first
-    act(() => {
-      result.current.startListening();
-    });
-
-    expect(result.current.isListening).toBe(true);
-
-    // Stop — the promise resolves via timeout since we don't fire a callback
+  it('creates provider on mount with config', async () => {
     await act(async () => {
-      await result.current.stopListening();
+      renderHook(() => useVoiceCommands('auto', mockConfig));
     });
-
-    expect(result.current.isListening).toBe(false);
-    expect(mockProvider.stop).toHaveBeenCalled();
+    expect(mockedCreateSTTProvider).toHaveBeenCalledWith('auto', mockConfig);
   });
 
-  it('stopListening resolves with empty string when provider is null-like', async () => {
-    // Render with a provider that becomes null after unmount
-    const { result, unmount } = renderHook(() => useVoiceCommands());
-    unmount(); // This sets providerRef to null
-    // After unmount we can't call stopListening, so test via a fresh mount
-    // where the mock returns null for the create call
-    mockedCreateSTTProvider.mockReturnValueOnce({ ...mockProvider, stop: vi.fn(), name: 'test' });
-    const { result: result2 } = renderHook(() => useVoiceCommands());
-    
-    // Provider exists but simulate no resolveRef
-    mockProvider.onResult.mockReturnValue(vi.fn());
-    mockProvider.onError.mockReturnValue(vi.fn());
-
-    act(() => {
-      result2.current.startListening();
-    });
-
+  it('returns correct initial state', async () => {
+    let state!: VoiceCommandState & { startListening: () => Promise<void>; stopListening: () => Promise<string> };
     await act(async () => {
-      await result2.current.stopListening();
+      const { result } = renderHook(() => useVoiceCommands('auto', mockConfig));
+      state = result.current;
     });
-
-    expect(result2.current.isListening).toBe(false);
+    expect(state.lastText).toBe('');
+    expect(state.isListening).toBe(false);
+    expect(state.providerName).toBe('mock-provider');
+    expect(typeof state.startListening).toBe('function');
+    expect(typeof state.stopListening).toBe('function');
   });
 
-  it('stopListening resolves with empty string after timeout (no final result)', async () => {
-    vi.useFakeTimers();
-
-    mockProvider.onResult.mockReturnValue(vi.fn());
-    mockProvider.onError.mockReturnValue(vi.fn());
-
-    const { result } = renderHook(() => useVoiceCommands());
-
-    act(() => {
-      result.current.startListening();
-    });
-
-    let text: string;
+  it('startListening calls provider.start', async () => {
+    const { result } = renderHook(() => useVoiceCommands('auto', mockConfig));
     await act(async () => {
-      const p = result.current.stopListening();
-      await vi.advanceTimersByTimeAsync(2500);
-      text = await p;
+      await result.current.startListening();
     });
-
-    expect(text).toBe('');
-    expect(result.current.isListening).toBe(false);
-
-    vi.useRealTimers();
+    expect(mockProvider.start).toHaveBeenCalled();
   });
 
-  it('PTT fast (<1s) does not crash', async () => {
-    mockProvider.onResult.mockReturnValue(vi.fn());
-    mockProvider.onError.mockReturnValue(vi.fn());
-
-    const { result } = renderHook(() => useVoiceCommands());
-
-    // Quick start → stop cycle (simulates PTT < 1s)
-    act(() => {
-      result.current.startListening();
-    });
-
-    let text: string;
+  it('stopListening returns transcript', async () => {
+    const { result } = renderHook(() => useVoiceCommands('auto', mockConfig));
+    let text = '';
     await act(async () => {
       text = await result.current.stopListening();
     });
-
-    expect(text).toBe(''); // No transcription arrived, resolves empty
-    expect(result.current.isListening).toBe(false);
-  });
-
-  it('double click does not execute twice', async () => {
-    mockProvider.onResult.mockReturnValue(vi.fn());
-    mockProvider.onError.mockReturnValue(vi.fn());
-
-    const { result } = renderHook(() => useVoiceCommands());
-
-    // First PTT
-    act(() => {
-      result.current.startListening();
-    });
-
-    // Second PTT while first is "listening" (the hook allows this)
-    act(() => {
-      result.current.startListening();
-    });
-
-    // Stop
-    await act(async () => {
-      await result.current.stopListening();
-    });
-
-    expect(result.current.isListening).toBe(false);
-  });
-
-  it('stops provider on unmount', () => {
-    const { unmount } = renderHook(() => useVoiceCommands());
-    unmount();
+    expect(text).toBe('gol do time a');
     expect(mockProvider.stop).toHaveBeenCalled();
   });
 
-  it('updates lastText when final result arrives', () => {
-    let capturedCallback: ((text: string, isFinal: boolean) => void) | null = null;
-    mockProvider.onResult.mockImplementation((cb) => {
-      capturedCallback = cb;
-      return vi.fn();
-    });
-    mockProvider.onError.mockReturnValue(vi.fn());
-
-    const { result } = renderHook(() => useVoiceCommands());
-
-    act(() => {
-      result.current.startListening();
-    });
-
-    // Simulate final result
-    act(() => {
-      capturedCallback?.('gol do time a', true);
-    });
-
-    expect(result.current.lastText).toBe('gol do time a');
-  });
-
-  it('does not update lastText for interim (non-final) results', () => {
-    let capturedCallback: ((text: string, isFinal: boolean) => void) | null = null;
-    mockProvider.onResult.mockImplementation((cb) => {
-      capturedCallback = cb;
-      return vi.fn();
-    });
-    mockProvider.onError.mockReturnValue(vi.fn());
-
-    const { result } = renderHook(() => useVoiceCommands());
-
-    act(() => {
-      result.current.startListening();
-    });
-
-    // Simulate interim result
-    act(() => {
-      capturedCallback?.('gol do...', false);
-    });
-
-    expect(result.current.lastText).toBe('');
-  });
-
-  it('error during listening resolves with empty string', async () => {
-    vi.useFakeTimers();
-    let errorCallback: ((error: Error) => void) | null = null;
-    mockProvider.onResult.mockReturnValue(vi.fn());
-    mockProvider.onError.mockImplementation((cb) => {
-      errorCallback = cb;
-      return vi.fn();
-    });
-
-    const { result } = renderHook(() => useVoiceCommands());
-
-    act(() => {
-      result.current.startListening();
-    });
-
-    let text: string;
+  it('stopListening returns empty on error', async () => {
+    mockProvider.stop.mockRejectedValueOnce(new Error('mic error'));
+    const { result } = renderHook(() => useVoiceCommands('auto', mockConfig));
+    let text = '';
     await act(async () => {
-      const p = result.current.stopListening();
-      // Simulate error
-      errorCallback?.(new Error('network'));
-      await vi.advanceTimersByTimeAsync(100);
-      text = await p;
+      text = await result.current.stopListening();
+    });
+    expect(text).toBe('');
+  });
+
+  it('cancel on unmount', async () => {
+    const { unmount } = renderHook(() => useVoiceCommands('auto', mockConfig));
+    await act(async () => {
+      // Wait for the provider to be created
+    });
+    act(() => {
+      unmount();
+    });
+    expect(mockProvider.cancel).toHaveBeenCalled();
+  });
+
+  it('onStatusChange updates isListening', async () => {
+    const { result } = renderHook(() => useVoiceCommands('auto', mockConfig));
+    await act(async () => {
+      // Wait for provider init
     });
 
-    expect(text).toBe('');
-    vi.useRealTimers();
+    act(() => {
+      mockProvider.onStatusChange?.('listening');
+    });
+    expect(result.current.isListening).toBe(true);
+
+    act(() => {
+      mockProvider.onStatusChange?.('idle');
+    });
+    expect(result.current.isListening).toBe(false);
   });
 });
