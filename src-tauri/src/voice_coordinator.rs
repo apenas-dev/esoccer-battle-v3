@@ -102,6 +102,18 @@ impl VoiceCoordinator {
             audio_buffer.samples.len()
         );
 
+        // FIX 7: Emit the captured audio buffer so frontend STT can use it
+        let _ = app.emit(
+            "voice-buffer",
+            VoiceBufferPayload {
+                samples: audio_buffer.samples,
+                sample_rate: audio_buffer.sample_rate,
+                channels: audio_buffer.channels,
+            },
+        );
+
+        // Note: The actual transcription is handled by the frontend STT provider.
+
         // Note: The actual transcription is handled by the frontend STT provider.
         // The backend just captures and notifies. The frontend then calls
         // execute_command with the transcript.
@@ -125,4 +137,12 @@ struct VoiceStatusPayload {
     status: String,
     transcript: Option<String>,
     error: Option<String>,
+}
+
+/// FIX 7: Payload for voice-buffer event with raw audio data
+#[derive(Clone, serde::Serialize)]
+struct VoiceBufferPayload {
+    samples: Vec<f32>,
+    sample_rate: u32,
+    channels: u16,
 }

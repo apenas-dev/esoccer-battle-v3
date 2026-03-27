@@ -28,9 +28,13 @@ async fn execute_command(
 ) -> Result<serde_json::Value, String> {
     let cmd = command::parse(&text).map_err(|e| e.reason)?;
 
-    let current = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?.clone();
-
-    let result = match_service::process(&current, cmd);
+    // FIX 5: Single lock scope — clone state, drop lock, process, then re-lock to write
+    let result = {
+        let state_lock = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+        let current = (*state_lock).clone();
+        drop(state_lock);
+        match_service::process(&current, cmd)
+    };
     action_dispatcher::dispatch(result.actions, &app).map_err(|e| e.to_string())?;
 
     let mut state_lock = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;

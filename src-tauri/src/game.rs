@@ -30,6 +30,15 @@ pub enum PlayingSubPhase {
     Challenge,
 }
 
+impl std::fmt::Display for PlayingSubPhase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PlayingSubPhase::Normal => write!(f, "normal"),
+            PlayingSubPhase::Challenge => write!(f, "challenge"),
+        }
+    }
+}
+
 /// Modo do cronômetro
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]

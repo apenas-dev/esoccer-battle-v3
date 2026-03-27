@@ -19,6 +19,17 @@ impl SoundFile {
             SoundFile::Challenge => "challenge.wav",
         }
     }
+
+    /// FIX 8: Map from action name string to SoundFile
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "goal" => Some(Self::Goal),
+            "whistle" => Some(Self::Whistle),
+            "six_meters" => Some(Self::SixMeters),
+            "challenge" => Some(Self::Challenge),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]

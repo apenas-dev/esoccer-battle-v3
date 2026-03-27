@@ -5,7 +5,7 @@ use crate::game::{GamePhase, MatchState, PlayingSubPhase};
 #[derive(Debug, Clone)]
 pub enum Action {
     PlaySound(SoundName),
-    EmitPhaseChanged(GamePhase),
+    EmitPhaseChanged { phase: GamePhase, sub_phase: PlayingSubPhase },
     EmitScoreChanged { score_a: u32, score_b: u32 },
     EmitTimeUpdated { elapsed_secs: u64, display: String },
     EmitMatchFinished { score_a: u32, score_b: u32 },
@@ -81,7 +81,7 @@ fn process_start(state: &MatchState) -> MatchResult {
         new_state,
         actions: vec![
             Action::PlaySound(SoundName::Whistle),
-            Action::EmitPhaseChanged(GamePhase::Playing),
+            Action::EmitPhaseChanged { phase: GamePhase::Playing, sub_phase: PlayingSubPhase::Normal },
             Action::StartTimer,
         ],
     }
@@ -132,6 +132,7 @@ fn process_pause(state: &MatchState) -> MatchResult {
         return noop(state);
     }
 
+    let sub_phase = state.sub_phase.clone();
     let new_state = state
         .clone()
         .with_phase(GamePhase::Paused)
@@ -141,7 +142,7 @@ fn process_pause(state: &MatchState) -> MatchResult {
         new_state,
         actions: vec![
             Action::StopTimer,
-            Action::EmitPhaseChanged(GamePhase::Paused),
+            Action::EmitPhaseChanged { phase: GamePhase::Paused, sub_phase },
         ],
     }
 }
@@ -152,6 +153,7 @@ fn process_resume(state: &MatchState) -> MatchResult {
     }
 
     // Elapsed stays at paused_elapsed_secs; frontend timer resumes from there
+    let sub_phase = state.sub_phase.clone();
     let new_state = state
         .clone()
         .with_phase(GamePhase::Playing)
@@ -161,7 +163,7 @@ fn process_resume(state: &MatchState) -> MatchResult {
         new_state,
         actions: vec![
             Action::StartTimer,
-            Action::EmitPhaseChanged(GamePhase::Playing),
+            Action::EmitPhaseChanged { phase: GamePhase::Playing, sub_phase },
         ],
     }
 }
@@ -177,7 +179,7 @@ fn process_doubt(state: &MatchState) -> MatchResult {
         new_state,
         actions: vec![
             Action::PlaySound(SoundName::Challenge),
-            Action::EmitPhaseChanged(GamePhase::Playing),
+            Action::EmitPhaseChanged { phase: GamePhase::Playing, sub_phase: PlayingSubPhase::Challenge },
         ],
     }
 }
@@ -191,7 +193,7 @@ fn process_resolve(state: &MatchState) -> MatchResult {
 
     MatchResult {
         new_state,
-        actions: vec![Action::EmitPhaseChanged(GamePhase::Playing)],
+        actions: vec![Action::EmitPhaseChanged { phase: GamePhase::Playing, sub_phase: PlayingSubPhase::Normal }],
     }
 }
 
@@ -206,7 +208,7 @@ fn process_volta_seis(state: &MatchState) -> MatchResult {
         new_state,
         actions: vec![
             Action::PlaySound(SoundName::SixMeters),
-            Action::EmitPhaseChanged(GamePhase::Playing),
+            Action::EmitPhaseChanged { phase: GamePhase::Playing, sub_phase: PlayingSubPhase::Normal },
         ],
     }
 }
@@ -237,7 +239,7 @@ fn process_end(state: &MatchState) -> MatchResult {
                 score_a: state.score_a,
                 score_b: state.score_b,
             },
-            Action::EmitPhaseChanged(GamePhase::Finished),
+            Action::EmitPhaseChanged { phase: GamePhase::Finished, sub_phase: PlayingSubPhase::Normal },
             Action::SaveMatch(snapshot),
         ],
     }
@@ -252,7 +254,7 @@ fn process_reset(state: &MatchState) -> MatchResult {
 
     MatchResult {
         new_state,
-        actions: vec![Action::EmitPhaseChanged(GamePhase::Idle)],
+        actions: vec![Action::EmitPhaseChanged { phase: GamePhase::Idle, sub_phase: PlayingSubPhase::Normal }],
     }
 }
 

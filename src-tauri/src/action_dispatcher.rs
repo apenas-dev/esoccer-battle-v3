@@ -1,7 +1,6 @@
 use crate::audio;
-use crate::game::GamePhase;
 use crate::history;
-use crate::match_service::{Action, SoundName};
+use crate::match_service::Action;
 use tauri::Emitter;
 
 #[derive(Debug)]
@@ -33,23 +32,23 @@ pub fn dispatch(actions: Vec<Action>, app_handle: &tauri::AppHandle) -> Result<(
 fn execute_action(action: Action, app_handle: &tauri::AppHandle) -> Result<(), DispatchError> {
     match action {
         Action::PlaySound(sound) => {
-            let sound_file = match sound {
-                SoundName::Goal => audio::SoundFile::Goal,
-                SoundName::Whistle => audio::SoundFile::Whistle,
-                SoundName::SixMeters => audio::SoundFile::SixMeters,
-                SoundName::Challenge => audio::SoundFile::Challenge,
+            // FIX 8: Use SoundFile::from_name instead of inline mapping
+            let name = match sound {
+                crate::match_service::SoundName::Goal => "goal",
+                crate::match_service::SoundName::Whistle => "whistle",
+                crate::match_service::SoundName::SixMeters => "six_meters",
+                crate::match_service::SoundName::Challenge => "challenge",
             };
+            let sound_file = audio::SoundFile::from_name(name)
+                .ok_or_else(|| DispatchError::Audio(format!("Unknown sound: {}", name)))?;
             audio::play(sound_file).map_err(|e| DispatchError::Audio(e.to_string()))
         }
 
-        Action::EmitPhaseChanged(phase) => {
+        // FIX 1: EmitPhaseChanged now carries sub_phase
+        Action::EmitPhaseChanged { phase, sub_phase } => {
             let payload = PhasePayload {
                 phase: phase.to_string(),
-                sub_phase: if phase == GamePhase::Playing {
-                    "normal".to_string()
-                } else {
-                    "normal".to_string()
-                },
+                sub_phase: sub_phase.to_string(),
             };
             emit_event(app_handle, "phase-changed", &payload)
         }
@@ -75,8 +74,16 @@ fn execute_action(action: Action, app_handle: &tauri::AppHandle) -> Result<(), D
             emit_event(app_handle, "match-finished", &payload)
         }
 
+        // FIX 6: Spawn history::save in background thread to avoid blocking main
         Action::SaveMatch(snapshot) => {
-            history::save(snapshot).map_err(|e| DispatchError::History(e.to_string()))
+            let app = app_handle.clone();
+            std::thread::spawn(move || {
+                if let Err(e) = history::save(snapshot) {
+                    tracing::error!("Failed to save match history: {}", e);
+                }
+                let _ = app.emit("history-updated", ());
+            });
+            Ok(())
         }
 
         Action::StartTimer => emit_event(app_handle, "timer-control", &"start"),

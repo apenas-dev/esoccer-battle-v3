@@ -26,15 +26,26 @@ pub struct AudioBuffer {
     pub channels: u16,
 }
 
-/// Wrapper to make cpal::Stream Send (cpal's !Send is overly conservative on Linux)
-struct SendSafeStream(cpal::Stream);
-unsafe impl Send for SendSafeStream {}
-
+/// Handle to a running audio capture.
+/// The actual cpal::Stream lives on a dedicated thread (via `stream_handle`).
+/// FIX 2: No unsafe impl Send — the stream stays on its owning thread.
 pub struct CaptureStream {
-    stream: Option<SendSafeStream>,
+    /// Shared buffer written to by the audio callback
     buffer: Arc<Mutex<Vec<f32>>>,
+    /// Signals the callback to stop writing
     is_active: Arc<AtomicBool>,
+    /// FIX 3: Signals the callback we're draining (it should stop writing)
+    draining: Arc<AtomicBool>,
+    /// Channel to send the stop signal; None once already stopped
+    stop_tx: Option<std::sync::mpsc::Sender<()>>,
+    /// Channel to receive the final buffer after stop
+    result_rx: std::sync::mpsc::Receiver<StopResult>,
+    /// FIX 4: Actual sample rate and channels used by the stream
+    sample_rate: u32,
+    channels: u16,
 }
+
+type StopResult = Result<AudioBuffer, CaptureError>;
 
 #[derive(Debug)]
 pub enum CaptureError {
@@ -56,6 +67,8 @@ impl std::fmt::Display for CaptureError {
 }
 
 impl CaptureStream {
+    /// Start audio capture. The cpal::Stream lives entirely on the spawned thread
+    /// so we never need `unsafe impl Send`.
     pub fn start(config: CaptureConfig) -> Result<Self, CaptureError> {
         let host = cpal::default_host();
         let device = match &config.device_name {
@@ -75,8 +88,12 @@ impl CaptureStream {
 
         let supported_config = device
             .supported_input_configs()
-            .map_err(|e: cpal::SupportedStreamConfigsError| CaptureError::StreamError(e.to_string()))?
-            .find(|c: &cpal::SupportedStreamConfigRange| c.sample_format() == cpal::SampleFormat::F32)
+            .map_err(|e: cpal::SupportedStreamConfigsError| {
+                CaptureError::StreamError(e.to_string())
+            })?
+            .find(|c: &cpal::SupportedStreamConfigRange| {
+                c.sample_format() == cpal::SampleFormat::F32
+            })
             .ok_or_else(|| {
                 CaptureError::ConfigError("No supported F32 input config found".into())
             })?
@@ -84,52 +101,106 @@ impl CaptureStream {
 
         let stream_config: cpal::StreamConfig = supported_config.into();
 
+        // FIX 4: Store actual sample rate and channels from the stream config
+        let actual_sample_rate = stream_config.sample_rate.0;
+        let actual_channels = stream_config.channels;
+
         let buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
         let is_active = Arc::new(AtomicBool::new(true));
-        let buffer_clone = buffer.clone();
+        let draining = Arc::new(AtomicBool::new(false));
 
-        let err_fn = |err: cpal::StreamError| {
-            tracing::error!("Audio stream error: {}", err);
-        };
+        // FIX 2: Stream lives on a dedicated thread — no unsafe Send needed
+        let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+        let (result_tx, result_rx) = std::sync::mpsc::channel::<StopResult>();
 
-        let stream = device
-            .build_input_stream(
+        let buffer_cb = buffer.clone();
+        let is_active_cb = is_active.clone();
+        let draining_cb = draining.clone();
+        let draining_stop = draining.clone();
+        let buffer_read = buffer.clone();
+
+        std::thread::spawn(move || {
+            let err_fn = |err: cpal::StreamError| {
+                tracing::error!("Audio stream error: {}", err);
+            };
+
+            let stream_result = device.build_input_stream(
                 &stream_config,
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    let mut buf = buffer_clone.lock().unwrap();
+                    // FIX 3: Don't write if draining or inactive
+                    if !is_active_cb.load(Ordering::SeqCst)
+                        || draining_cb.load(Ordering::SeqCst)
+                    {
+                        return;
+                    }
+                    let mut buf = buffer_cb.lock().unwrap();
                     buf.extend_from_slice(data);
                 },
                 err_fn,
                 None,
-            )
-            .map_err(|e: cpal::BuildStreamError| CaptureError::StreamError(e.to_string()))?;
+            );
 
-        stream.play().map_err(|e: cpal::PlayStreamError| CaptureError::StreamError(e.to_string()))?;
+            match stream_result {
+                Ok(stream) => {
+                    if let Err(e) = stream.play() {
+                        let _ = result_tx
+                            .send(Err(CaptureError::StreamError(e.to_string())));
+                        return;
+                    }
+
+                    // Wait for stop signal
+                    let _ = stop_rx.recv();
+
+                    // FIX 3: Mark draining so callback stops writing, then wait briefly
+                    draining_stop.store(true, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(30));
+
+                    // Drop stream to ensure callback is fully stopped
+                    drop(stream);
+
+                    // Read final buffer
+                    let samples = buffer_read
+                        .lock()
+                        .map(|mut b| std::mem::take(&mut *b))
+                        .unwrap_or_default();
+
+                    let _ = result_tx.send(Ok(AudioBuffer {
+                        samples,
+                        sample_rate: actual_sample_rate,
+                        channels: actual_channels,
+                    }));
+                }
+                Err(e) => {
+                    let _ = result_tx
+                        .send(Err(CaptureError::StreamError(e.to_string())));
+                }
+            }
+        });
 
         Ok(Self {
-            stream: Some(SendSafeStream(stream)),
             buffer,
             is_active,
+            draining,
+            stop_tx: Some(stop_tx),
+            result_rx,
+            sample_rate: actual_sample_rate,
+            channels: actual_channels,
         })
     }
 
+    /// Stop capture and return the collected audio buffer.
     pub fn stop(mut self) -> Result<AudioBuffer, CaptureError> {
         self.is_active.store(false, Ordering::SeqCst);
-        if let Some(SendSafeStream(stream)) = self.stream.take() {
-            drop(stream);
+
+        // Signal the stream thread to stop
+        if let Some(tx) = self.stop_tx.take() {
+            let _ = tx.send(());
         }
 
-        let samples = self
-            .buffer
-            .lock()
-            .map(|mut b| std::mem::take(&mut *b))
-            .unwrap_or_default();
-
-        Ok(AudioBuffer {
-            samples,
-            sample_rate: 16000,
-            channels: 1,
-        })
+        // Wait for the result from the stream thread
+        self.result_rx
+            .recv()
+            .map_err(|_| CaptureError::StreamError("Stream thread panicked".into()))?
     }
 
     pub fn list_devices() -> Result<Vec<String>, CaptureError> {
