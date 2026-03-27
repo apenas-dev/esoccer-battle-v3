@@ -9,7 +9,6 @@ mod match_service;
 mod voice_coordinator;
 
 use game::{MatchConfig, MatchState};
-use serde_json::json;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 use voice_coordinator::VoiceCoordinator;
@@ -21,8 +20,6 @@ struct AppState {
     voice: Mutex<VoiceCoordinator>,
 }
 
-// --- Tauri Commands ---
-
 #[tauri::command]
 async fn execute_command(
     text: String,
@@ -31,17 +28,12 @@ async fn execute_command(
 ) -> Result<serde_json::Value, String> {
     let cmd = command::parse(&text).map_err(|e| e.reason)?;
 
-    let current = state
-        .match_state
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone();
+    let current = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?.clone();
 
     let result = match_service::process(&current, cmd);
-
     action_dispatcher::dispatch(result.actions, &app).map_err(|e| e.to_string())?;
 
-    let mut state_lock = state.match_state.lock().map_err(|e| e.to_string())?;
+    let mut state_lock = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     *state_lock = result.new_state.clone();
 
     Ok(serde_json::to_value(&*state_lock).unwrap_or_default())
@@ -49,23 +41,23 @@ async fn execute_command(
 
 #[tauri::command]
 async fn start_listening(state: State<'_, AppState>) -> Result<(), String> {
-    let cfg = state.config.lock().map_err(|e| e.to_string())?;
+    let cfg = state.config.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     let device = cfg.mic_device.clone();
     drop(cfg);
 
-    let mut voice = state.voice.lock().map_err(|e| e.to_string())?;
+    let mut voice = state.voice.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     voice.start_listening(device).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn stop_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
-    let mut voice = state.voice.lock().map_err(|e| e.to_string())?;
+    let mut voice = state.voice.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     voice.stop_listening(&app).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn get_config(state: State<'_, AppState>) -> Result<config::AppConfig, String> {
-    let cfg = state.config.lock().map_err(|e| e.to_string())?;
+    let cfg = state.config.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     Ok(cfg.clone())
 }
 
@@ -77,14 +69,14 @@ async fn update_config(
     new_config.save().map_err(|e| e.to_string())?;
     audio::set_volume(new_config.volume);
 
-    let mut cfg = state.config.lock().map_err(|e| e.to_string())?;
+    let mut cfg = state.config.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     *cfg = new_config;
     Ok(())
 }
 
 #[tauri::command]
 async fn get_state(state: State<'_, AppState>) -> Result<MatchState, String> {
-    let ms = state.match_state.lock().map_err(|e| e.to_string())?;
+    let ms = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     Ok(ms.clone())
 }
 
@@ -105,22 +97,18 @@ async fn get_available_commands() -> Result<Vec<command::CommandHelp>, String> {
 
 #[tauri::command]
 async fn reset_match(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
-    let current = state
-        .match_state
-        .lock()
-        .map_err(|e| e.to_string())?
-        .clone();
+    let current = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?.clone();
 
     let result = match_service::process(&current, command::GameCommand::Reset);
     action_dispatcher::dispatch(result.actions, &app).map_err(|e| e.to_string())?;
 
-    let mut state_lock = state.match_state.lock().map_err(|e| e.to_string())?;
+    let mut state_lock = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     *state_lock = result.new_state;
     Ok(())
 }
 
 fn main() {
-    tracing_subscriber::init();
+    tracing_subscriber::fmt::init();
 
     let default_config = config::AppConfig::load().unwrap_or_else(|e| {
         tracing::warn!("Failed to load config, using default: {}", e);
@@ -143,7 +131,6 @@ fn main() {
             voice: Mutex::new(VoiceCoordinator::new()),
         })
         .setup(|app| {
-            // Try to preload sounds from resource directory
             if let Ok(resource_dir) = app.path().resource_dir() {
                 if let Err(e) = audio::preload_sounds(resource_dir) {
                     tracing::warn!("Failed to preload sounds: {}", e);

@@ -41,6 +41,7 @@ impl std::fmt::Display for ParseError {
 
 // ── Help ───────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommandHelp {
     pub command: String,
     pub description: String,
