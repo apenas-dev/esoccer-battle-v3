@@ -1,34 +1,54 @@
 //! On-demand (push-to-talk) transcription module.
 //!
-//! Provides a one-shot transcription function backed by a lazily-loaded
-//! singleton `WhisperContext`. Unlike the streaming pipeline in
+//! Provides a one-shot transcription function backed by a lazily-loaded,
+//! swappable singleton `WhisperContext`. Unlike the streaming pipeline in
 //! `transcriber.rs`, this runs inference exactly once on a provided audio
-//! buffer.
+//! buffer. If the requested model differs from the currently loaded one,
+//! the old context is dropped and a new one is created.
 
-use std::sync::OnceLock;
+use std::sync::Mutex;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext};
 
 use crate::transcriber;
 
-// ── Singleton model ──────────────────────────────────────────────────────
+// ── Singleton model (swappable) ─────────────────────────────────────────
 
-static WHISPER_CONTEXT: OnceLock<WhisperContext> = OnceLock::new();
+/// Holds the loaded Whisper context and which model it was built from.
+struct LoadedContext {
+    model: transcriber::Model,
+    context: WhisperContext,
+}
 
-/// Return a reference to the lazily-initialised global `WhisperContext`.
+static WHISPER_CONTEXT: Mutex<Option<LoadedContext>> = Mutex::new(None);
+
+/// Return a reference to the global `WhisperContext`, loading or swapping as needed.
 ///
-/// On the first call the model file is loaded from disk. Subsequent calls
-/// return the already-loaded instance (zero-copy).
+/// If the requested `model` differs from the currently cached one, the old
+/// context is dropped and a fresh instance is created from disk.
 pub fn get_or_load_context(
     model: &transcriber::Model,
-) -> Result<&'static WhisperContext, String> {
-    if let Some(ctx) = WHISPER_CONTEXT.get() {
-        return Ok(ctx);
+) -> Result<std::sync::MutexGuard<'static, Option<LoadedContext>>, String> {
+    let mut guard = WHISPER_CONTEXT.lock().map_err(|e| format!("WhisperContext lock poisoned: {e}"))?;
+
+    let needs_reload = match guard.as_ref() {
+        None => true,
+        Some(loaded) => loaded.model.model_type() != model.model_type(),
+    };
+
+    if needs_reload {
+        tracing::info!(
+            "[on-demand] Loading Whisper model (request={:?}, cached={:?})",
+            model,
+            guard.as_ref().map(|l| &l.model),
+        );
+        let ctx = transcriber::load_context(model).map_err(|e| format!("{e:#}"))?;
+        *guard = Some(LoadedContext {
+            model: model.clone(),
+            context: ctx,
+        });
     }
-    let ctx = transcriber::load_context(model).map_err(|e| format!("{e:#}"))?;
-    // Safety: we just checked it's None and we're the only writer
-    // (OnceLock.set returns Err only if already set, which can't race here).
-    let _ = WHISPER_CONTEXT.set(ctx);
-    Ok(WHISPER_CONTEXT.get().unwrap())
+
+    Ok(guard)
 }
 
 // ── One-shot transcription ───────────────────────────────────────────────
@@ -50,7 +70,12 @@ pub fn transcribe_once(
         audio.len()
     );
 
-    let ctx = get_or_load_context(model)?;
+    let loaded = get_or_load_context(model)?;
+    let ctx = loaded
+        .as_ref()
+        .expect("context was just loaded")
+        .context
+        .as_ref();
     tracing::info!("[on-demand] Whisper context ready");
 
     let mut state = ctx

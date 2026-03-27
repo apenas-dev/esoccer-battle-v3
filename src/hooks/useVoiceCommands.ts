@@ -22,6 +22,7 @@ export function useVoiceCommands(
   const [state, setState] = useState<VoiceCommandState>(idleState);
   const providerRef = useRef<ReturnType<typeof createSTTProvider> | null>(null);
   const resolveRef = useRef<((text: string) => void) | null>(null);
+  const unsubsRef = useRef<Array<() => void>>([]);
 
   // Create provider once on mount
   useEffect(() => {
@@ -31,6 +32,8 @@ export function useVoiceCommands(
       providerName: providerRef.current!.name,
     }));
     return () => {
+      unsubsRef.current.forEach((fn) => fn());
+      unsubsRef.current = [];
       providerRef.current?.stop();
       providerRef.current = null;
     };
@@ -64,8 +67,8 @@ export function useVoiceCommands(
 
     setState((prev) => ({ ...prev, isListening: true }));
 
-    // Store unsub functions for cleanup on stop
-    providerRef.current = Object.assign(provider, { _unsubs: [unsubResult, unsubError] } as never);
+    // Store unsub functions in a separate ref — never mutate the provider instance
+    unsubsRef.current = [unsubResult, unsubError];
   }, []);
 
   const stopListening = useCallback((): Promise<string> => {
@@ -97,8 +100,8 @@ export function useVoiceCommands(
       provider.stop();
 
       // Clean up subscriptions after stopping
-      const extended = provider as unknown as { _unsubs?: Array<() => void> };
-      extended._unsubs?.forEach((fn) => fn());
+      unsubsRef.current.forEach((fn) => fn());
+      unsubsRef.current = [];
 
       setState((prev) => ({ ...prev, isListening: false }));
     });
