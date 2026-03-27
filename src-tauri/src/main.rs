@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use tauri::{Emitter, Listener, Manager, State};
+use tauri::{Emitter, Listener, State};
 
 mod audio;
 mod buffer;
@@ -134,6 +134,43 @@ fn emit_state(app: &tauri::AppHandle, state: &game::MatchState) {
     if let Err(e) = app.emit("match_state_changed", state.clone()) {
         tracing::warn!("Failed to emit match_state_changed: {e}");
     }
+}
+
+/// Lock `MatchState`, apply `f`, then emit the new state.
+/// Returns `Result<R, String>` where `R` is the result of `f`.
+fn with_match_mut<F, R>(
+    app: &tauri::AppHandle,
+    match_state: &MatchState,
+    f: F,
+) -> Result<R, String>
+where
+    F: FnOnce(&mut game::MatchState) -> R,
+{
+    let mut guard = match_state
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?;
+    let result = f(&mut guard);
+    emit_state(app, &guard);
+    Ok(result)
+}
+
+/// Lock `MatchState`, apply `f`, clone the state, then emit it.
+/// Use when you need the cloned state after mutation (e.g. for side effects).
+fn with_match_mut_cloned<F>(
+    app: &tauri::AppHandle,
+    match_state: &MatchState,
+    f: F,
+) -> Result<game::MatchState, String>
+where
+    F: FnOnce(&mut game::MatchState),
+{
+    let mut guard = match_state
+        .lock()
+        .map_err(|e| format!("Lock poisoned: {e}"))?;
+    f(&mut guard);
+    let state = guard.clone();
+    emit_state(app, &state);
+    Ok(state)
 }
 
 fn execute_command(
@@ -264,13 +301,10 @@ fn start_match(
         (s.team_a_name.clone(), s.team_b_name.clone())
     };
 
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        *state = game::new_match(&team_a, &team_b);
-        game::start_match(&mut state);
-    }
+    with_match_mut(&app, &match_state, |s| {
+        *s = game::new_match(&team_a, &team_b);
+        game::start_match(s);
+    })?;
 
     // Stop any existing timer
     stop_timer(&timer);
@@ -283,12 +317,6 @@ fn start_match(
             .map_err(|e| format!("Timer lock poisoned: {e}"))?;
         *t = Some(guard);
     }
-
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
 
     // Play start whistle
     audio::play_sound(audio::GameSound::WhistleStart);
@@ -319,12 +347,7 @@ fn end_match(
     timer: State<'_, TimerHandle>,
     pipeline: State<'_, VoicePipelineState>,
 ) -> Result<(), String> {
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::end_match(&mut state);
-    }
+    let state = with_match_mut_cloned(&app, &match_state, game::end_match)?;
 
     stop_timer(&timer);
     audio::play_sound(audio::GameSound::WhistleEnd);
@@ -332,15 +355,9 @@ fn end_match(
     // Auto-stop voice pipeline (non-fatal)
     stop_listening_inner(pipeline.inner());
 
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-
     // Save match record to history
     save_match_record(&state);
 
-    emit_state(&app, &state);
     Ok(())
 }
 
@@ -349,19 +366,8 @@ fn goal_a(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
 ) -> Result<(), String> {
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::goal_a(&mut state);
-    }
+    with_match_mut(&app, &match_state, game::goal_a)?;
     audio::play_sound(audio::GameSound::Goal);
-
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
     Ok(())
 }
 
@@ -370,19 +376,8 @@ fn goal_b(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
 ) -> Result<(), String> {
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::goal_b(&mut state);
-    }
+    with_match_mut(&app, &match_state, game::goal_b)?;
     audio::play_sound(audio::GameSound::Goal);
-
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
     Ok(())
 }
 
@@ -413,12 +408,7 @@ fn restart(
         _ => {}
     }
 
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::restart(&mut state);
-    }
+    with_match_mut(&app, &match_state, game::restart)?;
     audio::play_sound(audio::GameSound::SixMeters);
 
     // Re-spawn timer since we're still Playing
@@ -430,11 +420,6 @@ fn restart(
         *t = Some(guard);
     }
 
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
     Ok(())
 }
 
@@ -443,19 +428,8 @@ fn challenge(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
 ) -> Result<(), String> {
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::challenge(&mut state);
-    }
+    with_match_mut(&app, &match_state, game::challenge)?;
     audio::play_sound(audio::GameSound::Challenge);
-
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
     Ok(())
 }
 
@@ -465,12 +439,7 @@ fn resolve_challenge(
     match_state: State<'_, MatchState>,
     timer: State<'_, TimerHandle>,
 ) -> Result<(), String> {
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::resolve_challenge(&mut state);
-    }
+    with_match_mut(&app, &match_state, game::resolve_challenge)?;
 
     // Stop any existing timer before re-spawning
     stop_timer(&timer);
@@ -484,11 +453,6 @@ fn resolve_challenge(
         *t = Some(guard);
     }
 
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
     Ok(())
 }
 
@@ -498,17 +462,7 @@ fn set_score_a(
     match_state: State<'_, MatchState>,
     score: u32,
 ) -> Result<(), String> {
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::set_score_a(&mut state, score);
-    }
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
+    with_match_mut(&app, &match_state, |s| game::set_score_a(s, score))?;
     Ok(())
 }
 
@@ -518,17 +472,7 @@ fn set_score_b(
     match_state: State<'_, MatchState>,
     score: u32,
 ) -> Result<(), String> {
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::set_score_b(&mut state, score);
-    }
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
+    with_match_mut(&app, &match_state, |s| game::set_score_b(s, score))?;
     Ok(())
 }
 
@@ -537,17 +481,10 @@ fn undo_goal(
     app: tauri::AppHandle,
     match_state: State<'_, MatchState>,
 ) -> Result<(), String> {
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::undo_goal(&mut state)?;
-    }
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
+    with_match_mut(&app, &match_state, |s| -> Result<(), String> {
+        game::undo_goal(s).map_err(|e| format!("{e}"))?;
+        Ok(())
+    })??;
     Ok(())
 }
 
@@ -557,20 +494,11 @@ fn pause_match(
     match_state: State<'_, MatchState>,
     timer: State<'_, TimerHandle>,
 ) -> Result<(), String> {
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::pause_match(&mut state)?;
-    }
-
+    with_match_mut(&app, &match_state, |s| -> Result<(), String> {
+        game::pause_match(s).map_err(|e| format!("{e}"))?;
+        Ok(())
+    })??;
     stop_timer(&timer);
-
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
     Ok(())
 }
 
@@ -580,13 +508,10 @@ fn resume_match(
     match_state: State<'_, MatchState>,
     timer: State<'_, TimerHandle>,
 ) -> Result<(), String> {
-    {
-        let mut state = match_state
-            .lock()
-            .map_err(|e| format!("Lock poisoned: {e}"))?;
-        game::resume_match(&mut state)?;
-    }
-
+    with_match_mut(&app, &match_state, |s| -> Result<(), String> {
+        game::resume_match(s).map_err(|e| format!("{e}"))?;
+        Ok(())
+    })??;
     // Stop any existing timer then re-spawn
     stop_timer(&timer);
     let guard = spawn_timer(app.clone(), match_state.inner().clone());
@@ -596,12 +521,6 @@ fn resume_match(
             .map_err(|e| format!("Timer lock poisoned: {e}"))?;
         *t = Some(guard);
     }
-
-    let state = match_state
-        .lock()
-        .map_err(|e| format!("Lock poisoned: {e}"))?
-        .clone();
-    emit_state(&app, &state);
     Ok(())
 }
 

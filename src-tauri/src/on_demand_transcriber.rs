@@ -32,7 +32,7 @@ pub fn get_or_load_context(
 
     let needs_reload = match guard.as_ref() {
         None => true,
-        Some(loaded) => loaded.model.model_type() != model.model_type(),
+        Some(loaded) => loaded.model.name() != model.name(),
     };
 
     if needs_reload {
@@ -73,12 +73,11 @@ pub fn transcribe_once(
     let loaded = get_or_load_context(model)?;
     let ctx = loaded
         .as_ref()
-        .expect("context was just loaded")
-        .context
-        .as_ref();
+        .expect("context was just loaded");
     tracing::info!("[on-demand] Whisper context ready");
 
     let mut state = ctx
+        .context
         .create_state()
         .map_err(|e| format!("Failed to create Whisper state: {e}"))?;
 

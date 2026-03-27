@@ -57,8 +57,11 @@ impl Drop for AudioStream {
         tracing::info!("[capture] Dropping AudioStream — signalling shutdown");
         self.shutdown.store(true, Ordering::SeqCst);
         if let Some(handle) = self.thread_handle.take() {
-            // Use detached pattern to avoid blocking Drop
-            std::mem::forget(handle);
+            match handle.join() {
+                Ok(Ok(())) => tracing::info!("[capture] Capture thread joined cleanly"),
+                Ok(Err(e)) => tracing::warn!("[capture] Capture thread exited with error: {e}"),
+                Err(_) => tracing::warn!("[capture] Capture thread panicked or was already joined"),
+            }
         }
     }
 }
