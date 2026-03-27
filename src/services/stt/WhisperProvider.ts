@@ -34,19 +34,15 @@ export class WhisperProvider implements ISTTProvider {
   }
 
   /** BUG 5 FIX: Actually stop/cancel the backend listening session. */
-  async cancel(): Promise<void> {
+  cancel(): void {
     if (!this._isListening) {
       this.onStatusChange?.('idle');
       return;
     }
     this._isListening = false;
     this.onStatusChange?.('idle');
-    try {
-      // Prefer explicit cancel command if available; fall back to stop_listening.
-      await invoke('cancel_listening').catch(() => invoke('stop_listening'));
-    } catch {
-      // Silently ignore — status is already reset.
-    }
+    // Prefer explicit cancel command; fall back to stop_listening. Fire-and-forget.
+    invoke('cancel_listening').catch(() => invoke('stop_listening')).catch(() => {});
   }
 
   onStatusChange?: (status: 'idle' | 'listening' | 'processing') => void;
