@@ -15,7 +15,7 @@ pub enum Action {
     NoOp,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SoundName {
     Goal,
     Whistle,
@@ -387,15 +387,57 @@ mod tests {
     }
 
     #[test]
+    fn doubt_from_challenge_is_noop() {
+        let state = playing_state().with_sub_phase(PlayingSubPhase::Challenge);
+        let result = process(&state, GameCommand::Doubt);
+        assert_eq!(result.new_state.sub_phase, PlayingSubPhase::Challenge);
+        assert!(result.actions.iter().any(|a| matches!(a, Action::NoOp)));
+    }
+
+    #[test]
+    fn end_generates_correct_snapshot() {
+        let state = playing_state()
+            .with_score_a(2)
+            .with_score_b(1)
+            .with_elapsed(300);
+        let result = process(&state, GameCommand::End);
+        let snapshot_action = result.actions.iter().find(|a| matches!(a, Action::SaveMatch(_)));
+        assert!(snapshot_action.is_some());
+        if let Action::SaveMatch(snap) = snapshot_action.unwrap() {
+            assert_eq!(snap.score_a, 2);
+            assert_eq!(snap.score_b, 1);
+            assert_eq!(snap.duration_secs, 300);
+            assert_eq!(snap.match_id, state.match_id);
+            assert_eq!(snap.team_a_name, state.config.team_a_name);
+            assert_eq!(snap.team_b_name, state.config.team_b_name);
+            assert!(!snap.finished_at.is_empty());
+        }
+    }
+
+    #[test]
+    fn resolve_from_normal_is_noop() {
+        let state = playing_state();
+        let result = process(&state, GameCommand::Resolve);
+        assert!(result.actions.iter().any(|a| matches!(a, Action::NoOp)));
+    }
+
+    #[test]
+    fn volta_seis_from_normal_is_noop() {
+        let state = playing_state();
+        let result = process(&state, GameCommand::VoltaSeis);
+        assert!(result.actions.iter().any(|a| matches!(a, Action::NoOp)));
+    }
+
+    #[test]
     fn all_commands_in_idle_produce_noop_except_start() {
         let state = idle_state();
-        let mut noop_cmds = vec![
+        let noop_cmds = [
             GameCommand::GoalA, GameCommand::GoalB, GameCommand::Pause,
             GameCommand::Resume, GameCommand::Doubt, GameCommand::Resolve,
             GameCommand::VoltaSeis, GameCommand::End, GameCommand::Reset,
         ];
-        for cmd in noop_cmds.drain(..) {
-            let result = process(&state, cmd);
+        for cmd in &noop_cmds {
+            let result = process(&state, cmd.clone());
             assert!(
                 result.actions.iter().any(|a| matches!(a, Action::NoOp)),
                 "Expected NoOp for {:?} in Idle",
