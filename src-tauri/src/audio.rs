@@ -1,8 +1,13 @@
 //! Sound playback — game sound effects via rodio.
+//!
+//! Architecture:
+//! - `init()` must be called once at startup (not LazyLock).
+//! - If init fails, audio is disabled but the app keeps running.
+//! - `play()` enqueues work on a bounded channel — no unbounded thread spawn.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::mpsc::{self, Receiver};
 
 // ── SoundName ────────────────────────────────────────────────────────────
 
@@ -41,6 +46,8 @@ pub enum AudioError {
     Load(String),
 }
 
+pub type AudioResult<T> = Result<T, AudioError>;
+
 impl std::fmt::Display for AudioError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -69,20 +76,104 @@ pub fn set_volume(vol: f32) {
     VOLUME_PERCENT.store(pct, Ordering::Relaxed);
 }
 
-// ── Audio output (lazily initialized) ────────────────────────────────────
+// ── Audio output (explicit init) ────────────────────────────────────────
 
-static OUTPUT_HANDLE: LazyLock<Option<rodio::OutputStreamHandle>> = LazyLock::new(|| {
-    let (_stream, handle) = match rodio::OutputStream::try_default() {
-        Ok(pair) => pair,
+/// Tracks whether init was attempted successfully.
+static INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+/// The sender side of the work queue. Send sound play requests here.
+static SENDER: std::sync::Mutex<Option<std::sync::mpsc::SyncSender<SoundName>>> = std::sync::Mutex::new(None);
+
+/// Maximum concurrent audio tasks in the work queue.
+const WORK_QUEUE_CAPACITY: usize = 8;
+
+/// Initialize the audio subsystem. Must be called once at app startup.
+///
+/// - Creates the rodio output stream.
+/// - Spawns a single worker thread with a bounded channel.
+/// - If initialization fails, logs the error and marks audio as unavailable.
+///   The app keeps running — `play()` calls will be silently skipped.
+pub fn init() {
+    if INITIALIZED.load(Ordering::Relaxed) {
+        eprintln!("[AUDIO] already initialized, skipping");
+        return;
+    }
+
+    // Verify that audio output is available before spawning worker.
+    // OutputStream is not Send, so we create it inside the worker thread.
+    if rodio::OutputStream::try_default().is_err() {
+        eprintln!("[AUDIO] ERROR: No audio output device available");
+        eprintln!("[AUDIO] Audio will be disabled for this session");
+        return;
+    }
+
+    let (tx, rx): (std::sync::mpsc::SyncSender<SoundName>, Receiver<SoundName>) =
+        mpsc::sync_channel(WORK_QUEUE_CAPACITY);
+
+    std::thread::Builder::new()
+        .name("audio-worker".into())
+        .spawn(move || {
+            // Create OutputStream inside this thread — it's not Send so
+            // it cannot cross thread boundaries.
+            let (_stream, handle) = match rodio::OutputStream::try_default() {
+                Ok(pair) => pair,
+                Err(e) => {
+                    eprintln!("[AUDIO] ERROR: Failed to create output in worker: {e}");
+                    return;
+                }
+            };
+            while let Ok(sound) = rx.recv() {
+                play_sync(&handle, sound);
+            }
+            // Channel closed — worker exits gracefully.
+        })
+        .expect("failed to spawn audio worker thread");
+
+    if let Ok(mut guard) = SENDER.lock() {
+        *guard = Some(tx);
+    }
+
+    INITIALIZED.store(true, Ordering::Relaxed);
+    eprintln!("[AUDIO] initialized successfully (queue capacity={WORK_QUEUE_CAPACITY})");
+}
+
+/// Returns true if audio was successfully initialized.
+pub fn is_initialized() -> bool {
+    INITIALIZED.load(Ordering::Relaxed)
+}
+
+/// Synchronous sound playback (runs inside the worker thread).
+fn play_sync(handle: &rodio::OutputStreamHandle, sound: SoundName) {
+    let path = sounds_dir().join(sound.filename());
+
+    let file = match std::fs::File::open(&path) {
+        Ok(f) => f,
         Err(e) => {
-            tracing::warn!("Failed to create global audio output stream: {e}");
-            return None;
+            eprintln!("[AUDIO] WARN: file not found: {:?} ({e})", path);
+            return;
         }
     };
-    // `_stream` must outlive all Sinks — intentionally leaked via LazyLock.
-    std::mem::forget(_stream);
-    Some(handle)
-});
+
+    let source = match rodio::Decoder::new(std::io::BufReader::new(file)) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[AUDIO] WARN: failed to decode {:?}: {e}", path);
+            return;
+        }
+    };
+
+    let sink = match rodio::Sink::try_new(handle) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[AUDIO] WARN: failed to create sink: {e}");
+            return;
+        }
+    };
+
+    sink.set_volume(volume());
+    sink.append(source);
+    sink.sleep_until_end();
+}
 
 // ── Sounds directory ─────────────────────────────────────────────────────
 
@@ -122,7 +213,7 @@ pub fn set_sounds_dir(dir: PathBuf) {
 
 /// Preloads all sound files — verifies they exist and are decodable.
 /// Call during app initialization to catch missing assets early.
-pub fn preload_sounds() -> Result<(), AudioError> {
+pub fn preload_sounds() -> AudioResult<()> {
     let dir = sounds_dir();
 
     for sound in SoundName::all() {
@@ -134,67 +225,63 @@ pub fn preload_sounds() -> Result<(), AudioError> {
             .map_err(|e| AudioError::Load(format!("{path:?}: {e}")))?;
     }
 
-    tracing::info!("All sounds preloaded successfully from {:?}", dir);
+    eprintln!("[AUDIO] all sounds preloaded successfully from {:?}", dir);
     Ok(())
 }
 
 // ── Play ─────────────────────────────────────────────────────────────────
 
-/// Plays a sound effect. Non-blocking — spawns a background thread.
-/// Never panics; logs warnings on failure.
+/// Plays a sound effect. Non-blocking — enqueues on the bounded work queue.
+/// Never panics; logs warnings on failure or if audio is not initialized.
 pub fn play(sound: SoundName) {
-    let path = sounds_dir().join(sound.filename());
+    if !INITIALIZED.load(Ordering::Relaxed) {
+        eprintln!("[AUDIO] play({:?}) skipped — audio not initialized", sound);
+        return;
+    }
 
-    std::thread::spawn(move || {
-        let handle = match OUTPUT_HANDLE.as_ref() {
-            Some(h) => h,
-            None => {
-                tracing::warn!(
-                    "No audio output available — sound {:?} skipped",
-                    sound
-                );
-                return;
-            }
-        };
+    let sender = match SENDER.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
 
-        let file = match std::fs::File::open(&path) {
-            Ok(f) => f,
-            Err(e) => {
-                tracing::warn!("Audio file not found: {:?} ({e})", path);
-                return;
-            }
-        };
+    let sender = match sender {
+        Some(s) => s,
+        None => {
+            eprintln!("[AUDIO] play({:?}) skipped — sender not available", sound);
+            return;
+        }
+    };
 
-        let source = match rodio::Decoder::new(std::io::BufReader::new(file)) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!("Failed to decode {:?}: {e}", path);
-                return;
-            }
-        };
-
-        let sink = match rodio::Sink::try_new(handle) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::warn!("Failed to create audio sink: {e}");
-                return;
-            }
-        };
-
-        sink.set_volume(volume());
-        sink.append(source);
-        sink.sleep_until_end();
-    });
+    match sender.try_send(sound) {
+        Ok(()) => {
+            eprintln!("[AUDIO] enqueued {:?}", sound);
+        }
+        Err(mpsc::TrySendError::Full(s)) => {
+            eprintln!("[AUDIO] WARN: queue full, dropping {:?}", s);
+        }
+        Err(mpsc::TrySendError::Disconnected(s)) => {
+            eprintln!("[AUDIO] WARN: worker disconnected, dropping {:?}", s);
+        }
+    }
 }
 
 /// Plays a sound and returns a `Result`. Blocking variant for use in tests
 /// or contexts where you need error propagation.
-pub fn play_blocking(sound: SoundName) -> Result<(), AudioError> {
+pub fn play_blocking(sound: SoundName) -> AudioResult<()> {
     let path = sounds_dir().join(sound.filename());
 
-    let handle = OUTPUT_HANDLE
-        .as_ref()
-        .ok_or_else(|| AudioError::Playback("No audio output".into()))?;
+    let _handle = INITIALIZED
+        .load(Ordering::Relaxed)
+        .then_some(())
+        .ok_or_else(|| AudioError::Playback("Audio not initialized".into()))?;
+
+    // We need the actual OutputStreamHandle — but in init() it's moved
+    // into the worker thread. This blocking variant is best-effort;
+    // for testing, init() should have been called or we create a temp one.
+    // For now, redirect to the same path as play() but blocking.
+    // Since the handle is inside the worker, we open a separate stream.
+    let (stream, handle) = rodio::OutputStream::try_default()
+        .map_err(|e| AudioError::Playback(format!("Failed to create output: {e}")))?;
 
     let file = std::fs::File::open(&path)
         .map_err(|e| AudioError::FileNotFound(format!("{path:?}: {e}")))?;
@@ -203,10 +290,14 @@ pub fn play_blocking(sound: SoundName) -> Result<(), AudioError> {
         .map_err(|e| AudioError::Load(format!("{path:?}: {e}")))?;
 
     let sink =
-        rodio::Sink::try_new(handle).map_err(|e| AudioError::Playback(e.to_string()))?;
+        rodio::Sink::try_new(&handle).map_err(|e| AudioError::Playback(e.to_string()))?;
 
     sink.set_volume(volume());
     sink.append(source);
     sink.sleep_until_end();
+
+    // Keep stream alive until playback finishes
+    drop(stream);
+    eprintln!("[AUDIO] play_blocking({:?}) completed", sound);
     Ok(())
 }

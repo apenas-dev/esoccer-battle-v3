@@ -4,7 +4,12 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::game::TimerMode;
+
 // ── Enums ────────────────────────────────────────────────────────────────
+
+/// Maximum allowed match duration in seconds (90 minutes).
+pub const MAX_MATCH_DURATION_SECS: u64 = 5400;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -46,13 +51,6 @@ pub enum Language {
 pub enum Theme {
     Dark,
     Light,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TimerMode {
-    Countdown,
-    CountUp,
 }
 
 // ── AppConfig ─────────────────────────────────────────────────────────────
@@ -132,6 +130,15 @@ impl AppConfig {
             errors.push("match_duration_secs must be greater than 0".to_string());
         }
 
+        if self.match_duration_secs > MAX_MATCH_DURATION_SECS {
+            errors.push(format!(
+                "match_duration_secs must be <= {} ({} minutes), got {}",
+                MAX_MATCH_DURATION_SECS,
+                MAX_MATCH_DURATION_SECS / 60,
+                self.match_duration_secs
+            ));
+        }
+
         if self.team_a_name.trim().is_empty() {
             errors.push("team_a_name must not be empty".to_string());
         }
@@ -150,7 +157,7 @@ impl AppConfig {
         if !path.exists() {
             let defaults = Self::default();
             defaults.save()?;
-            tracing::info!("Created default config at {:?}", path);
+            eprintln!("[CONFIG] created default config at {:?}", path);
             return Ok(defaults);
         }
 
@@ -164,9 +171,11 @@ impl AppConfig {
 
         let errors = config.validate();
         if !errors.is_empty() {
+            eprintln!("[CONFIG] validation errors: {}", errors.join("; "));
             return Err(ConfigError::Validation(errors.join("; ")));
         }
 
+        eprintln!("[CONFIG] loaded from {:?}", path);
         Ok(config)
     }
 
@@ -248,6 +257,21 @@ mod tests {
         let mut config = AppConfig::default();
         config.match_duration_secs = 0;
         assert!(!config.validate().is_empty());
+    }
+
+    #[test]
+    fn reject_duration_exceeding_max() {
+        let mut config = AppConfig::default();
+        config.match_duration_secs = 7200; // 120 min > 90 min max
+        assert!(!config.validate().is_empty());
+        assert!(config.validate().iter().any(|e| e.contains("5400")));
+    }
+
+    #[test]
+    fn accept_duration_at_max() {
+        let mut config = AppConfig::default();
+        config.match_duration_secs = 5400; // exactly 90 min
+        assert!(config.validate().is_empty());
     }
 
     #[test]
