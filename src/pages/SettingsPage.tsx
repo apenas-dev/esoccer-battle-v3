@@ -75,9 +75,17 @@ export function SettingsPage() {
             <label className="text-xs text-[var(--text-secondary)]">Duração (segundos)</label>
             <input
               type="number"
+              min={30}
+              max={600}
+              step={30}
               className={inputClass + ' w-full'}
               value={form.match_duration_secs}
-              onChange={(e) => update('match_duration_secs', Number(e.target.value))}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                if (!Number.isNaN(val) && val >= 30 && val <= 600) {
+                  update('match_duration_secs', val);
+                }
+              }}
             />
           </div>
           <div>
