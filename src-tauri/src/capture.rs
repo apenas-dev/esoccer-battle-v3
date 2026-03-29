@@ -2,6 +2,9 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// Maximum buffer capacity: ~5 seconds at 16kHz mono = 80,000 samples
+pub const BUFFER_CAPACITY: usize = 80_000;
+
 #[derive(Debug, Clone)]
 pub struct CaptureConfig {
     pub device_name: Option<String>,
@@ -135,6 +138,11 @@ impl CaptureStream {
                     }
                     let mut buf = buffer_cb.lock().unwrap();
                     buf.extend_from_slice(data);
+                    // HIGH-2: Ring buffer — discard oldest samples if over capacity
+                    if buf.len() > BUFFER_CAPACITY {
+                        let excess = buf.len() - BUFFER_CAPACITY;
+                        buf.drain(..excess);
+                    }
                 },
                 err_fn,
                 None,
