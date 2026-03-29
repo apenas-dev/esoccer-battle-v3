@@ -27,7 +27,17 @@ export function VoiceIndicator({ status, lastTranscript, isListening, onStart, o
         )}
         animate={isListening ? { scale: [1, 1.1, 1] } : { scale: 1 }}
         transition={{ duration: 0.8, repeat: isListening ? Infinity : 0 }}
-        aria-label={isListening ? 'Release to stop listening' : 'Press to talk'}
+        aria-label={
+          status === 'listening'
+            ? 'Ouvindo - Toque para parar'
+            : status === 'processing'
+              ? 'Processando comando de voz'
+              : status === 'error'
+                ? 'Erro no reconhecimento de voz'
+                : lastTranscript
+                  ? 'Pronto - Toque para falar novamente'
+                  : 'Microfone desligado - Toque para falar'
+        }
       >
         🎤
         {isListening && (
