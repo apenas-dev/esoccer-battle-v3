@@ -86,9 +86,15 @@ fn execute_action(action: Action, app_handle: &tauri::AppHandle) -> Result<(), D
             Ok(())
         }
 
-        Action::StartTimer => emit_event(app_handle, "timer-control", &"start"),
+        Action::StartTimer => {
+            // Timer is managed by main.rs via TimerManager, not here
+            Ok(())
+        }
 
-        Action::StopTimer => emit_event(app_handle, "timer-control", &"stop"),
+        Action::StopTimer => {
+            // Timer is managed by main.rs via TimerManager, not here
+            Ok(())
+        }
 
         Action::NoOp => Ok(()),
     }

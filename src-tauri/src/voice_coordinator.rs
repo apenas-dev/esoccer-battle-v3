@@ -1,13 +1,89 @@
 use crate::capture::{CaptureConfig, CaptureStream};
+use crate::config::WhisperModel;
 use tauri::{AppHandle, Emitter};
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-/// Canal de saída do pipeline de voz
-#[derive(Debug, Clone)]
-pub enum VoiceEvent {
-    TranscriptReady(String),
-    Listening,
-    Silence,
-    Error(String),
+/// Lazy-loaded Whisper context. Loads once, reuses forever.
+static WHISPER_CTX: std::sync::OnceLock<Result<WhisperContext, String>> = std::sync::OnceLock::new();
+
+/// Try to load the Whisper model from known paths.
+fn load_whisper_context(model: &WhisperModel) -> Result<WhisperContext, String> {
+    let model_filename = match model {
+        WhisperModel::Tiny => "ggml-tiny.bin",
+        WhisperModel::Base => "ggml-base.bin",
+        WhisperModel::Small => "ggml-small.bin",
+    };
+
+    let search_paths: Vec<&'static str> = vec![
+        "./models",
+        "/usr/share/esoccer/models",
+        "/usr/local/share/esoccer/models",
+    ];
+
+    for base in &search_paths {
+        let model_path = std::path::Path::new(base).join(model_filename);
+        if model_path.exists() {
+            tracing::info!("Loading Whisper model from: {}", model_path.display());
+            return WhisperContext::new_with_params(
+                &model_path,
+                WhisperContextParameters::default(),
+            ).map_err(|e| format!("Failed to load Whisper model: {}", e));
+        }
+    }
+
+    Err(format!(
+        "Whisper model '{}' not found. Searched: {:?}",
+        model_filename, search_paths
+    ))
+}
+
+/// Get or initialize the Whisper context (lazy, once).
+fn get_whisper_ctx(model: &WhisperModel) -> Result<&'static WhisperContext, String> {
+    WHISPER_CTX
+        .get_or_init(|| {
+            tracing::info!("Initializing Whisper (lazy load)...");
+            load_whisper_context(model)
+        })
+        .as_ref()
+        .map_err(|e| e.clone())
+}
+
+/// Transcribe audio samples using Whisper (single-shot inference).
+fn transcribe(samples: &[f32], model: &WhisperModel) -> Result<String, String> {
+    let ctx = get_whisper_ctx(model)?;
+
+    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    params.set_language(Some("pt"));
+    params.set_translate(false);
+    params.set_print_special(false);
+    params.set_print_progress(false);
+    params.set_print_realtime(false);
+    params.set_print_timestamps(false);
+    params.set_suppress_blank(true);
+    params.set_suppress_nst(true);
+
+    // Create state for inference
+    let mut state = ctx
+        .create_state()
+        .map_err(|e| format!("Failed to create Whisper state: {}", e))?;
+
+    // Run inference
+    state
+        .full(params, samples)
+        .map_err(|e| format!("Whisper inference failed: {}", e))?;
+
+    // Extract text from all segments
+    let num_segments = state.full_n_segments();
+    let mut text = String::new();
+    for i in 0..num_segments {
+        if let Some(segment) = state.get_segment(i) {
+            if let Ok(s) = segment.to_str() {
+                text.push_str(s);
+            }
+        }
+    }
+
+    Ok(text.trim().to_string())
 }
 
 #[derive(Debug)]
@@ -15,6 +91,7 @@ pub enum VoiceError {
     Capture(String),
     Transcription(String),
     NotListening,
+    ModelNotLoaded(String),
 }
 
 impl std::fmt::Display for VoiceError {
@@ -23,6 +100,7 @@ impl std::fmt::Display for VoiceError {
             VoiceError::Capture(s) => write!(f, "Capture error: {}", s),
             VoiceError::Transcription(s) => write!(f, "Transcription error: {}", s),
             VoiceError::NotListening => write!(f, "Not currently listening"),
+            VoiceError::ModelNotLoaded(s) => write!(f, "Model error: {}", s),
         }
     }
 }
@@ -31,6 +109,7 @@ impl std::fmt::Display for VoiceError {
 pub struct VoiceCoordinator {
     is_listening: bool,
     capture: Option<CaptureStream>,
+    whisper_model: WhisperModel,
 }
 
 impl VoiceCoordinator {
@@ -38,7 +117,13 @@ impl VoiceCoordinator {
         Self {
             is_listening: false,
             capture: None,
+            whisper_model: WhisperModel::Base,
         }
+    }
+
+    pub fn with_model(mut self, model: WhisperModel) -> Self {
+        self.whisper_model = model;
+        self
     }
 
     /// Início PTT: começa a capturar do microfone
@@ -62,9 +147,9 @@ impl VoiceCoordinator {
         Ok(())
     }
 
-    /// Fim PTT: para captura, emite voice-status event via Tauri
-    /// A transcrição acontece no frontend (WebSpeech API) ou via whisper direto
-    pub fn stop_listening(&mut self, _app: &AppHandle) -> Result<Option<String>, VoiceError> {
+    /// Fim PTT: para captura, transcreve com Whisper, emite resultado.
+    /// LOW FIX: Now returns transcript from Whisper.
+    pub fn stop_listening(&mut self, app: &AppHandle) -> Result<Option<String>, VoiceError> {
         if !self.is_listening {
             return Err(VoiceError::NotListening);
         }
@@ -75,47 +160,85 @@ impl VoiceCoordinator {
         let audio_buffer = capture.stop().map_err(|e| VoiceError::Capture(e.to_string()))?;
 
         if audio_buffer.samples.is_empty() {
-            // No audio captured — emit silence
-            let _ = _app.emit(
+            let _ = app.emit(
                 "voice-status",
-                VoiceStatusPayload {
-                    status: "silence".into(),
-                    transcript: None,
-                    error: None,
-                },
+                serde_json::json!({
+                    "status": "silence",
+                    "transcript": null,
+                    "error": null,
+                }),
             );
             return Ok(None);
         }
 
-        // Emit processing status — frontend will handle transcription via WebSpeech/Whisper
-        let _ = _app.emit(
-            "voice-status",
-            VoiceStatusPayload {
-                status: "processing".into(),
-                transcript: None,
-                error: None,
-            },
-        );
-
         tracing::info!(
-            "Voice capture stopped, {} samples captured",
+            "Voice capture stopped, {} samples, running Whisper...",
             audio_buffer.samples.len()
         );
 
-        // FIX 7: Emit the captured audio buffer so frontend STT can use it
-        let _ = _app.emit(
-            "voice-buffer",
-            VoiceBufferPayload {
-                samples: audio_buffer.samples,
-                sample_rate: audio_buffer.sample_rate,
-                channels: audio_buffer.channels,
-            },
+        // CRITICAL-1 FIX: Transcribe with Whisper
+        let transcript = match transcribe(&audio_buffer.samples, &self.whisper_model) {
+            Ok(text) => {
+                if text.is_empty() {
+                    tracing::info!("Whisper returned empty transcript");
+                    let _ = app.emit(
+                        "voice-status",
+                        serde_json::json!({
+                            "status": "silence",
+                            "transcript": null,
+                            "error": null,
+                        }),
+                    );
+                    return Ok(None);
+                }
+                tracing::info!("Whisper transcript: {}", text);
+                text
+            }
+            Err(e) => {
+                tracing::warn!("Whisper transcription failed: {}", e);
+                let _ = app.emit(
+                    "voice-status",
+                    serde_json::json!({
+                        "status": "error",
+                        "transcript": null,
+                        "error": e,
+                    }),
+                );
+                return Err(VoiceError::Transcription(e));
+            }
+        };
+
+        // Emit voice_text event (frontend compatibility)
+        let _ = app.emit(
+            "voice-text",
+            serde_json::json!({ "text": transcript }),
         );
 
-        // Note: The actual transcription is handled by the frontend STT provider.
-        // The backend just captures and notifies. The frontend then calls
-        // execute_command with the transcript.
-        Ok(None)
+        let _ = app.emit(
+            "voice-status",
+            serde_json::json!({
+                "status": "done",
+                "transcript": transcript,
+                "error": null,
+            }),
+        );
+
+        Ok(Some(transcript))
+    }
+
+    /// Cancel listening without transcribing
+    pub fn cancel_listening(&mut self) -> Result<(), VoiceError> {
+        if !self.is_listening {
+            return Err(VoiceError::NotListening);
+        }
+
+        if let Some(capture) = self.capture.take() {
+            let _ = capture.stop();
+        }
+        self.is_listening = false;
+
+        tracing::info!("Voice capture cancelled");
+        Ok(())
     }
 
     /// Verifica se está ouvindo
@@ -130,17 +253,20 @@ impl Default for VoiceCoordinator {
     }
 }
 
-#[derive(Clone, serde::Serialize)]
-struct VoiceStatusPayload {
-    status: String,
-    transcript: Option<String>,
-    error: Option<String>,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// FIX 7: Payload for voice-buffer event with raw audio data
-#[derive(Clone, serde::Serialize)]
-struct VoiceBufferPayload {
-    samples: Vec<f32>,
-    sample_rate: u32,
-    channels: u16,
+    #[test]
+    fn voice_coordinator_new_not_listening() {
+        let vc = VoiceCoordinator::new();
+        assert!(!vc.is_listening());
+    }
+
+    #[test]
+    fn cancel_when_not_listening() {
+        let mut vc = VoiceCoordinator::new();
+        let result = vc.cancel_listening();
+        assert!(result.is_err());
+    }
 }

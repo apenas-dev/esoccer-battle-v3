@@ -6,9 +6,11 @@ mod config;
 mod game;
 mod history;
 mod match_service;
+mod timer;
 mod voice_coordinator;
 
 use game::{MatchConfig, MatchState};
+use match_service::Action;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 use voice_coordinator::VoiceCoordinator;
@@ -18,6 +20,7 @@ struct AppState {
     match_state: Mutex<MatchState>,
     config: Mutex<config::AppConfig>,
     voice: Mutex<VoiceCoordinator>,
+    timer: timer::TimerManager,
 }
 
 #[tauri::command]
@@ -28,19 +31,40 @@ async fn execute_command(
 ) -> Result<serde_json::Value, String> {
     let cmd = command::parse(&text).map_err(|e| e.reason)?;
 
-    // FIX 5: Single lock scope — clone state, drop lock, process, then re-lock to write
+    // MEDIUM-1 FIX: Single lock scope — read, process, write back atomically.
+    // We hold the lock for the entire read-process-write cycle to prevent races.
     let result = {
-        let state_lock = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+        let mut state_lock = state.match_state.lock()
+            .map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
         let current = (*state_lock).clone();
-        drop(state_lock);
-        match_service::process(&current, cmd)
+
+        let result = match_service::process(&current, cmd);
+
+        // Check for timer actions BEFORE dispatch
+        let has_start_timer = result.actions.iter().any(|a| matches!(a, Action::StartTimer));
+        let has_stop_timer = result.actions.iter().any(|a| matches!(a, Action::StopTimer));
+
+        // Write new state while still holding lock
+        *state_lock = result.new_state.clone();
+
+        (result, has_start_timer, has_stop_timer, current.elapsed_secs)
     };
-    action_dispatcher::dispatch(result.actions, &app).map_err(|e| e.to_string())?;
 
-    let mut state_lock = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
-    *state_lock = result.new_state.clone();
+    // Dispatch actions (side effects) outside the lock
+    action_dispatcher::dispatch(result.0.actions, &app).map_err(|e| e.to_string())?;
 
-    Ok(serde_json::to_value(&*state_lock).unwrap_or_default())
+    // CRITICAL-2 FIX: Handle timer start/stop
+    if result.2 {
+        // Stop timer first
+        state.timer.stop();
+    }
+    if result.1 {
+        // Start timer with current elapsed and duration
+        let duration_secs = result.0.new_state.config.duration_secs;
+        state.timer.start(app, result.3, duration_secs);
+    }
+
+    Ok(serde_json::to_value(&result.0.new_state).unwrap_or_default())
 }
 
 #[tauri::command]
@@ -58,6 +82,12 @@ async fn stop_listening(state: State<'_, AppState>, app: AppHandle) -> Result<Op
     let mut voice = state.voice.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
     let transcript = voice.stop_listening(&app).map_err(|e| e.to_string())?;
     Ok(transcript)
+}
+
+#[tauri::command]
+async fn cancel_listening(state: State<'_, AppState>) -> Result<(), String> {
+    let mut voice = state.voice.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+    voice.cancel_listening().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -112,13 +142,15 @@ async fn get_available_commands() -> Result<Vec<command::CommandHelp>, String> {
 
 #[tauri::command]
 async fn reset_match(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
-    let current = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?.clone();
-
-    let result = match_service::process(&current, command::GameCommand::Reset);
+    // MEDIUM-1 FIX: Same single-lock pattern
+    let result = {
+        let mut state_lock = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
+        let current = (*state_lock).clone();
+        let result = match_service::process(&current, command::GameCommand::Reset);
+        *state_lock = result.new_state.clone();
+        result
+    };
     action_dispatcher::dispatch(result.actions, &app).map_err(|e| e.to_string())?;
-
-    let mut state_lock = state.match_state.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
-    *state_lock = result.new_state;
     Ok(())
 }
 
@@ -144,6 +176,7 @@ fn main() {
             match_state: Mutex::new(MatchState::new(match_config)),
             config: Mutex::new(default_config),
             voice: Mutex::new(VoiceCoordinator::new()),
+            timer: timer::TimerManager::new(),
         })
         .setup(|app| {
             if let Ok(resource_dir) = app.path().resource_dir() {
@@ -157,6 +190,7 @@ fn main() {
             execute_command,
             start_listening,
             stop_listening,
+            cancel_listening,
             get_config,
             update_config,
             get_state,
