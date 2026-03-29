@@ -33,7 +33,11 @@ export class WhisperProvider implements ISTTProvider {
     return transcript ?? '';
   }
 
-  /** BUG 5 FIX: Actually stop/cancel the backend listening session. */
+  /**
+   * Cancel an in-flight listening session.
+   * Uses stop_listening as the sole backend call — cancel_listening will be
+   * added by the backend team later and can be wired up here then.
+   */
   cancel(): void {
     if (!this._isListening) {
       this.onStatusChange?.('idle');
@@ -41,8 +45,8 @@ export class WhisperProvider implements ISTTProvider {
     }
     this._isListening = false;
     this.onStatusChange?.('idle');
-    // Prefer explicit cancel command; fall back to stop_listening. Fire-and-forget.
-    invoke('cancel_listening').catch(() => invoke('stop_listening')).catch(() => {});
+    // Fire-and-forget: tell the backend to stop capturing audio.
+    invoke('stop_listening').catch(() => {});
   }
 
   onStatusChange?: (status: 'idle' | 'listening' | 'processing') => void;
