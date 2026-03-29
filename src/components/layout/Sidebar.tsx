@@ -23,9 +23,9 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
           onClick={() => onNavigate(item.page)}
           className={cn(
             'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-            'hover:bg-gray-200 dark:hover:bg-gray-700',
+            'hover:bg-[var(--bg-card)]',
             currentPage === item.page
-              ? 'bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-500'
+              ? 'bg-blue-600 text-white hover:bg-blue-700'
               : 'text-[var(--text-secondary)]',
           )}
         >
