@@ -52,6 +52,16 @@ impl std::fmt::Display for AudioError {
 static VOLUME: Mutex<f32> = Mutex::new(0.7);
 static SOUND_DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
 
+/// HIGH-1: Global OutputStream — created once, leaked intentionally.
+/// Rodio doesn't support multiple OutputStreams simultaneously.
+static OUTPUT_HANDLE: std::sync::LazyLock<rodio::OutputStreamHandle> = std::sync::LazyLock::new(|| {
+    let (stream, handle) = rodio::OutputStream::try_default()
+        .expect("Failed to initialize audio output");
+    // Leak the stream so it lives for the entire process lifetime
+    std::mem::forget(stream);
+    handle
+});
+
 /// Reproduz um som em thread separada
 pub fn play(sound: SoundFile) -> Result<(), AudioError> {
     let dir_lock = SOUND_DIR.lock().map_err(|e| AudioError::Load(e.to_string()))?;
@@ -65,10 +75,11 @@ pub fn play(sound: SoundFile) -> Result<(), AudioError> {
     }
 
     let vol = VOLUME.lock().map_err(|e| AudioError::Load(e.to_string()))?.to_owned();
+    let handle = &*OUTPUT_HANDLE;
 
     // Spawn in separate thread to avoid blocking
     std::thread::spawn(move || {
-        if let Err(e) = play_blocking(&path, vol) {
+        if let Err(e) = play_with_handle(&path, vol, handle) {
             tracing::error!("Audio playback error: {:?}", e);
         }
     });
@@ -76,20 +87,21 @@ pub fn play(sound: SoundFile) -> Result<(), AudioError> {
     Ok(())
 }
 
-fn play_blocking(path: &std::path::Path, vol: f32) -> Result<(), AudioError> {
+fn play_with_handle(
+    path: &std::path::Path,
+    vol: f32,
+    stream_handle: &rodio::OutputStreamHandle,
+) -> Result<(), AudioError> {
     let file = std::fs::File::open(path).map_err(|e| AudioError::FileNotFound(e.to_string()))?;
 
-    let stream = rodio::Decoder::new(std::io::BufReader::new(file))
+    let decoder = rodio::Decoder::new(std::io::BufReader::new(file))
         .map_err(|e| AudioError::Load(format!("Failed to decode audio: {}", e)))?;
 
-    let (_stream, handle) = rodio::OutputStream::try_default()
-        .map_err(|e| AudioError::Playback(format!("No audio output: {}", e)))?;
-
-    let sink = rodio::Sink::try_new(&handle)
+    let sink = rodio::Sink::try_new(stream_handle)
         .map_err(|e| AudioError::Playback(format!("Failed to create sink: {}", e)))?;
 
     sink.set_volume(vol);
-    sink.append(stream);
+    sink.append(decoder);
     sink.sleep_until_end();
 
     Ok(())
