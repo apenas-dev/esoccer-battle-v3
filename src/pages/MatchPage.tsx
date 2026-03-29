@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useMatchState } from '../hooks/useMatchState';
 import { useVoicePipeline } from '../hooks/useVoicePipeline';
 import { createSTTProvider } from '../services/stt/sttFactory';
@@ -14,13 +14,6 @@ export function MatchPage() {
     if (!config) return;
     createSTTProvider('auto', config).then(setProvider);
   }, [config]);
-
-  const handleExecuteCommand = useCallback(
-    async (text: string) => {
-      await executeCommand(text);
-    },
-    [executeCommand],
-  );
 
   // BUG 1 FIX: Guard — don't render anything until provider + state are ready
   if (!provider || !state || isLoading) {
@@ -38,7 +31,7 @@ export function MatchPage() {
       provider={provider}
       state={state}
       displayTime={displayTime}
-      executeCommand={handleExecuteCommand}
+      executeCommand={executeCommand}
       resetMatch={resetMatch}
     />
   );
@@ -58,23 +51,9 @@ function MatchPageWithVoice({
   executeCommand: (text: string) => Promise<void>;
   resetMatch: () => Promise<void>;
 }) {
-  const handleVoiceTranscript = useCallback(
-    async (text: string) => {
-      await executeCommand(text);
-    },
-    [executeCommand],
-  );
-
-  const handleButtonCommand = useCallback(
-    async (text: string) => {
-      await executeCommand(text);
-    },
-    [executeCommand],
-  );
-
   const voicePipeline = useVoicePipeline({
     provider,
-    onTranscript: handleVoiceTranscript,
+    onTranscript: executeCommand,
     onError: (e) => console.error('Voice error:', e),
   });
 
@@ -100,7 +79,7 @@ function MatchPageWithVoice({
         lastTranscript={voicePipeline.lastTranscript}
         isListening={voicePipeline.isListening}
         lastVoiceCommand={voicePipeline.lastTranscript}
-        onExecuteCommand={handleButtonCommand}
+        onExecuteCommand={executeCommand}
         onResetMatch={resetMatch}
         onStartListening={voicePipeline.startListening}
         onStopListening={voicePipeline.stopListening}
