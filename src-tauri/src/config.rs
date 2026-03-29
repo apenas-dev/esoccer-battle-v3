@@ -46,6 +46,23 @@ pub enum ConfigError {
     Validation(String),
 }
 
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            mic_device: None,
+            whisper_model: WhisperModel::Base,
+            language: Language::PtBr,
+            voice_threshold: 0.3,
+            team_a_name: "Time A".to_string(),
+            team_b_name: "Time B".to_string(),
+            theme: Theme::Dark,
+            match_duration_secs: 600,
+            timer_mode: TimerMode::Countdown,
+            volume: 0.7,
+        }
+    }
+}
+
 impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
         let path = config_path();
@@ -70,21 +87,6 @@ impl AppConfig {
 
         let content = serde_json::to_string_pretty(self).map_err(|e| ConfigError::Parse(e.to_string()))?;
         std::fs::write(&path, content).map_err(|e| ConfigError::Io(e.to_string()))
-    }
-
-    pub fn default() -> Self {
-        Self {
-            mic_device: None,
-            whisper_model: WhisperModel::Base,
-            language: Language::PtBr,
-            voice_threshold: 0.3,
-            team_a_name: "Time A".to_string(),
-            team_b_name: "Time B".to_string(),
-            theme: Theme::Dark,
-            match_duration_secs: 600,
-            timer_mode: TimerMode::Countdown,
-            volume: 0.7,
-        }
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
