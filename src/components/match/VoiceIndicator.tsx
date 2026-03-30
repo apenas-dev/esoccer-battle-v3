@@ -20,7 +20,7 @@ export function VoiceIndicator({ status, lastTranscript, isListening, onStart, o
         onTouchStart={onStart}
         onTouchEnd={onStop}
         className={cn(
-          'flex h-20 w-20 items-center justify-center rounded-full text-3xl transition-colors',
+          'relative flex h-20 w-20 items-center justify-center rounded-full text-3xl transition-colors',
           isListening
             ? 'bg-neon-red text-white'
             : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-2 border-[var(--border-color)]',
