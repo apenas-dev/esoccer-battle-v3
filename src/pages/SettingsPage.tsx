@@ -10,6 +10,8 @@ export function SettingsPage() {
   const [micDevices, setMicDevices] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // BUG 4 FIX: Track whether form has been modified by the user
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
     loadConfig();
@@ -20,7 +22,11 @@ export function SettingsPage() {
     if (config && !form) {
       setForm({ ...config });
     }
-  }, [config, form]);
+    // BUG 4 FIX: Sync form when config changes AND user hasn't edited
+    if (config && form && !isDirty) {
+      setForm({ ...config });
+    }
+  }, [config, form, isDirty]);
 
   if (!form) {
     return <div className="text-center text-[var(--text-secondary)]">Carregando configurações...</div>;
@@ -28,6 +34,7 @@ export function SettingsPage() {
 
   const update = <K extends keyof AppConfig>(key: K, value: AppConfig[K]) => {
     setForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+    setIsDirty(true);
     setSaved(false);
   };
 
@@ -36,6 +43,7 @@ export function SettingsPage() {
     await updateConfig(form);
     setSaving(false);
     setSaved(true);
+    setIsDirty(false);
     setTimeout(() => setSaved(false), 2000);
   };
 
