@@ -90,6 +90,16 @@ impl AppConfig {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
+        if self.team_a_name.trim().is_empty() {
+            return Err(ConfigError::Validation(
+                "team_a_name must not be empty".into(),
+            ));
+        }
+        if self.team_b_name.trim().is_empty() {
+            return Err(ConfigError::Validation(
+                "team_b_name must not be empty".into(),
+            ));
+        }
         if !(0.0..=1.0).contains(&self.voice_threshold) {
             return Err(ConfigError::Validation(
                 "voice_threshold must be between 0.0 and 1.0".into(),
