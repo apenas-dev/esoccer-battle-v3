@@ -24,6 +24,8 @@ interface MatchLayoutProps {
   isListening: boolean;
   /** BUG 2 FIX: Latest voice command text so we can log it. */
   lastVoiceCommand: string | null;
+  /** BUG 2 FIX: Whether the last voice command succeeded. */
+  lastVoiceCommandSuccess: boolean;
   onExecuteCommand: (text: string) => Promise<void>;
   onResetMatch: () => Promise<void>;
   onStartListening: () => void;
@@ -53,6 +55,7 @@ export function MatchLayout({
   lastTranscript,
   isListening,
   lastVoiceCommand,
+  lastVoiceCommandSuccess,
   onExecuteCommand,
   onResetMatch,
   onStartListening,
@@ -61,13 +64,19 @@ export function MatchLayout({
   const [flashTeam, setFlashTeam] = useState<'a' | 'b' | null>(null);
   // BUG 2 FIX: Single source of truth for command log — lives here, receives both button and voice commands
   const [logEntries, setLogEntries] = useState<CommandLogEntry[]>([]);
-  // Track last logged voice command to avoid duplicates
-  const [loggedVoiceCommand, setLoggedVoiceCommand] = useState<string | null>(null);
 
-  // BUG 2 + BUG 3 FIX: Log voice commands and trigger flash when a new voice transcript arrives
+  // BUG 2 FIX: Log voice commands only after execution result is known.
+  // MatchPage passes `lastVoiceCommand` and `lastVoiceCommandSuccess`.
+  // We track which commands we've already logged to avoid duplicates.
+  const [loggedVoiceCommand, setLoggedVoiceCommand] = useState<{ text: string; success: boolean } | null>(null);
+
   useEffect(() => {
-    if (lastVoiceCommand && lastVoiceCommand !== loggedVoiceCommand) {
-      setLoggedVoiceCommand(lastVoiceCommand);
+    if (
+      lastVoiceCommand &&
+      (!loggedVoiceCommand || loggedVoiceCommand.text !== lastVoiceCommand || loggedVoiceCommand.success !== lastVoiceCommandSuccess)
+    ) {
+      const entry = { text: lastVoiceCommand, success: lastVoiceCommandSuccess };
+      setLoggedVoiceCommand(entry);
       setLogEntries((prev) => [
         ...prev,
         {
@@ -75,7 +84,7 @@ export function MatchLayout({
           timestamp: new Date(),
           command: lastVoiceCommand,
           source: 'voice',
-          success: true,
+          success: lastVoiceCommandSuccess,
         },
       ]);
       const flash = detectFlashTeam(lastVoiceCommand);
@@ -84,7 +93,7 @@ export function MatchLayout({
         setTimeout(() => setFlashTeam(null), 600);
       }
     }
-  }, [lastVoiceCommand, loggedVoiceCommand]);
+  }, [lastVoiceCommand, lastVoiceCommandSuccess, loggedVoiceCommand]);
 
   const handleCommand = async (text: string) => {
     setLogEntries((prev) => [

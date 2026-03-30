@@ -79,6 +79,7 @@ function MatchPageWithVoice({
         lastTranscript={voicePipeline.lastTranscript}
         isListening={voicePipeline.isListening}
         lastVoiceCommand={voicePipeline.lastTranscript}
+        lastVoiceCommandSuccess={voicePipeline.lastCommandSuccess}
         onExecuteCommand={executeCommand}
         onResetMatch={resetMatch}
         onStartListening={voicePipeline.startListening}
