@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { UnlistenFn } from '@tauri-apps/api/event';
@@ -106,14 +106,14 @@ export function useMatchState(): UseMatchStateReturn {
   }, [loadState, loadConfig]);
 
   // Compute displayTime
-  const displayTime = (() => {
+  const displayTime = useMemo(() => {
     if (!state) return '00:00';
     if (state.config.timer_mode === 'countdown') {
       const remaining = Math.max(0, state.config.duration_secs - state.elapsed_secs);
       return formatTime(remaining);
     }
     return formatTime(state.elapsed_secs);
-  })();
+  }, [state]);
 
   const executeCommand = useCallback(async (text: string) => {
     try {
