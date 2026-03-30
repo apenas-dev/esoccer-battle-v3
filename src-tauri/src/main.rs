@@ -11,13 +11,13 @@ mod voice_coordinator;
 
 use game::{MatchConfig, MatchState};
 use match_service::Action;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 use voice_coordinator::VoiceCoordinator;
 
 /// Estado global gerenciado pelo Tauri
 struct AppState {
-    match_state: Mutex<MatchState>,
+    match_state: Arc<Mutex<MatchState>>,
     config: Mutex<config::AppConfig>,
     voice: Mutex<VoiceCoordinator>,
     timer: timer::TimerManager,
@@ -47,7 +47,7 @@ async fn execute_command(
         // Write new state while still holding lock
         *state_lock = result.new_state.clone();
 
-        (result, has_start_timer, has_stop_timer, current.elapsed_secs)
+        (result, has_start_timer, has_stop_timer, result.new_state.elapsed_secs)
     };
 
     // Dispatch actions (side effects) outside the lock
@@ -59,9 +59,10 @@ async fn execute_command(
         state.timer.stop();
     }
     if result.1 {
-        // Start timer with current elapsed and duration
+        // Start timer with post-processing elapsed, duration, and timer_mode
         let duration_secs = result.0.new_state.config.duration_secs;
-        state.timer.start(app, result.3, duration_secs);
+        let timer_mode = result.0.new_state.config.timer_mode.clone();
+        state.timer.start(app, result.3, duration_secs, timer_mode, state.match_state.clone());
     }
 
     Ok(serde_json::to_value(&result.0.new_state).unwrap_or_default())
@@ -78,10 +79,10 @@ async fn start_listening(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn stop_listening(state: State<'_, AppState>, app: AppHandle) -> Result<Option<String>, String> {
+async fn stop_listening(state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
     let mut voice = state.voice.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
-    let transcript = voice.stop_listening(&app).map_err(|e| e.to_string())?;
-    Ok(transcript)
+    voice.stop_listening(&app).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -173,7 +174,7 @@ fn main() {
 
     tauri::Builder::default()
         .manage(AppState {
-            match_state: Mutex::new(MatchState::new(match_config)),
+            match_state: Arc::new(Mutex::new(MatchState::new(match_config))),
             config: Mutex::new(default_config),
             voice: Mutex::new(VoiceCoordinator::new()),
             timer: timer::TimerManager::new(),
