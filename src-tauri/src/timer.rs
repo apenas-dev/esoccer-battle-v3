@@ -4,6 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use tauri::{AppHandle, Emitter};
 
+use crate::game::{MatchState, TimerMode};
+
 /// Manages a single background timer thread that emits `time-updated` events.
 pub struct TimerManager {
     /// Sender to signal the timer thread to stop.
@@ -24,7 +26,17 @@ impl TimerManager {
     }
 
     /// Start the timer. Does nothing if already running.
-    pub fn start(&self, app: AppHandle, initial_elapsed: u64, duration_secs: u64) {
+    ///
+    /// `shared_state` allows the timer to auto-finish the match (CountDown mode)
+    /// by calling `match_service::process(End)` and updating state atomically.
+    pub fn start(
+        &self,
+        app: AppHandle,
+        initial_elapsed: u64,
+        duration_secs: u64,
+        timer_mode: TimerMode,
+        shared_state: Arc<Mutex<MatchState>>,
+    ) {
         if self.running.load(Ordering::SeqCst) {
             return;
         }
@@ -34,11 +46,10 @@ impl TimerManager {
         self.running.store(true, Ordering::SeqCst);
 
         let running_flag = self.running.clone();
-        // Clone the AtomicBool so the thread can clear it on exit
 
         let handle = thread::spawn(move || {
             let mut elapsed = initial_elapsed;
-            let timer_mode_countdown = duration_secs > 0; // non-zero duration means countdown
+            let is_countdown = timer_mode == TimerMode::Countdown;
 
             loop {
                 // Check for stop signal with 1-second timeout
@@ -51,33 +62,72 @@ impl TimerManager {
                         // Normal tick — increment and emit
                         elapsed += 1;
 
-                        let remaining = duration_secs.saturating_sub(elapsed);
-                        let display = if timer_mode_countdown {
+                        let display = if is_countdown {
+                            let remaining = duration_secs.saturating_sub(elapsed);
                             format!("{:02}:{:02}", remaining / 60, remaining % 60)
                         } else {
                             format!("{:02}:{:02}", elapsed / 60, elapsed % 60)
                         };
+
+                        // Update shared state elapsed_secs so get_state() always reflects real time
+                        if let Ok(mut state_lock) = shared_state.lock() {
+                            state_lock.elapsed_secs = elapsed;
+                        }
 
                         let _ = app.emit(
                             "time-updated",
                             serde_json::json!({
                                 "elapsed_secs": elapsed,
                                 "display": display,
-                                "remaining_secs": if timer_mode_countdown { Some(remaining) } else { None },
+                                "remaining_secs": if is_countdown {
+                                    Some(duration_secs.saturating_sub(elapsed))
+                                } else {
+                                    None
+                                },
                             }),
                         );
 
                         // Check time up for countdown mode
-                        if timer_mode_countdown && elapsed >= duration_secs {
-                            tracing::info!("Timer reached duration ({}s), auto-finishing match", duration_secs);
-                            // Auto-finish: execute End command
-                            let app_clone = app.clone();
-                            tauri::async_runtime::block_on(async {
-                                let _ = app_clone.emit("time-up", serde_json::json!({
+                        if is_countdown && elapsed >= duration_secs {
+                            tracing::info!(
+                                "Timer reached duration ({}s), auto-finishing match",
+                                duration_secs
+                            );
+
+                            // --- Auto-finish: atomically transition state to Finished ---
+                            // We read current state, process End command, and write back
+                            // all within a single lock to prevent races.
+                            let dispatch_actions = {
+                                let mut state_lock = match shared_state.lock() {
+                                    Ok(lock) => lock,
+                                    Err(_) => {
+                                        tracing::error!("Failed to lock state for auto-finish");
+                                        break;
+                                    }
+                                };
+                                let current = (*state_lock).clone();
+                                let result =
+                                    crate::match_service::process(&current, crate::command::GameCommand::End);
+                                *state_lock = result.new_state.clone();
+                                result.actions
+                            };
+
+                            // Emit time-up event
+                            let _ = app.emit(
+                                "time-up",
+                                serde_json::json!({
                                     "elapsed_secs": elapsed,
                                     "display": "00:00",
-                                }));
-                            });
+                                }),
+                            );
+
+                            // Dispatch the End actions (sounds, phase-changed, save match, etc.)
+                            if let Err(e) =
+                                crate::action_dispatcher::dispatch(dispatch_actions, &app)
+                            {
+                                tracing::error!("Failed to dispatch auto-finish actions: {}", e);
+                            }
+
                             break;
                         }
                     }
@@ -88,7 +138,12 @@ impl TimerManager {
         });
 
         *self.thread_handle.lock().unwrap() = Some(handle);
-        tracing::info!("Timer started (initial elapsed: {}s)", initial_elapsed);
+        tracing::info!(
+            "Timer started (initial elapsed: {}s, mode: {:?}, duration: {}s)",
+            initial_elapsed,
+            timer_mode,
+            duration_secs
+        );
     }
 
     /// Stop the timer. Waits for the thread to finish.
