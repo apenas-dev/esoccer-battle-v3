@@ -86,7 +86,11 @@ fn save_entries(entries: &[HistoryEntry]) -> Result<(), HistoryError> {
     }
 
     let content = serde_json::to_string_pretty(entries).map_err(|e| HistoryError::Parse(e.to_string()))?;
-    std::fs::write(&path, content).map_err(|e| HistoryError::Io(e.to_string()))
+
+    // Atomic write: write to temp file, then rename
+    let tmp_path = path.with_extension("json.tmp");
+    std::fs::write(&tmp_path, &content).map_err(|e| HistoryError::Io(e.to_string()))?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| HistoryError::Io(e.to_string()))
 }
 
 impl std::fmt::Display for HistoryError {
