@@ -152,11 +152,12 @@ fn process_resume(state: &MatchState) -> MatchResult {
         return noop(state);
     }
 
-    // Elapsed stays at paused_elapsed_secs; frontend timer resumes from there
+    // Explicitly restore elapsed from paused value — do not rely on implicit equality
     let sub_phase = state.sub_phase.clone();
     let new_state = state
         .clone()
         .with_phase(GamePhase::Playing)
+        .with_elapsed(state.paused_elapsed_secs)
         .with_started_at(Some(chrono::Utc::now().timestamp_millis() as u64));
 
     MatchResult {
