@@ -10,9 +10,11 @@ export function formatTime(totalSeconds: number): string {
 
 export function formatDateTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleString('pt-BR');
+    const date = new Date(iso);
+    if (isNaN(date.getTime())) return '—';
+    return date.toLocaleString('pt-BR');
   } catch {
-    return iso;
+    return '—';
   }
 }
 
