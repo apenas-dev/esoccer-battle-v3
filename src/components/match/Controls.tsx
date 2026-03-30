@@ -21,48 +21,66 @@ export function Controls({ phase, subPhase, onExecuteCommand, onResetMatch }: Co
   return (
     <div className="flex flex-wrap items-center justify-center gap-2">
       {/* Idle: Start */}
-      <Button
-        variant="neon"
-        onClick={handleCommand('start')}
-        disabled={!isIdle}
-      >
-        ▶ Iniciar
-      </Button>
+      {isIdle && (
+        <Button variant="neon" onClick={handleCommand('start')}>
+          ▶ Iniciar
+        </Button>
+      )}
 
-      {/* Playing Normal: Pause, Goal A, Goal B, Doubt, End */}
-      <Button variant="secondary" onClick={handleCommand('pause')} disabled={!isPlaying}>
-        ⏸ Pausar
-      </Button>
-      <Button variant="secondary" onClick={handleCommand('gol time a')} disabled={!isPlaying}>
-        ⚽ Gol {isPlaying ? 'A' : ''}
-      </Button>
-      <Button variant="secondary" onClick={handleCommand('gol time b')} disabled={!isPlaying}>
-        ⚽ Gol {isPlaying ? 'B' : ''}
-      </Button>
-      <Button variant="secondary" onClick={handleCommand('dúvida')} disabled={!isPlaying}>
-        ⚠️ Dúvida
-      </Button>
-      <Button variant="danger" onClick={handleCommand('encerrar')} disabled={!isPlayingAny && !isPaused}>
-        🛑 Encerrar
-      </Button>
+      {/* Playing Normal: Pause, Goal A, Goal B, Doubt */}
+      {isPlaying && (
+        <Button variant="secondary" onClick={handleCommand('pause')}>
+          ⏸ Pausar
+        </Button>
+      )}
+      {isPlayingAny && (
+        <Button variant="secondary" onClick={handleCommand('gol time a')}>
+          ⚽ Gol A
+        </Button>
+      )}
+      {isPlayingAny && (
+        <Button variant="secondary" onClick={handleCommand('gol time b')}>
+          ⚽ Gol B
+        </Button>
+      )}
+      {isPlaying && (
+        <Button variant="secondary" onClick={handleCommand('dúvida')}>
+          ⚠️ Dúvida
+        </Button>
+      )}
+
+      {/* Playing/Paused: End */}
+      {(isPlayingAny || isPaused) && (
+        <Button variant="danger" onClick={handleCommand('encerrar')}>
+          🛑 Encerrar
+        </Button>
+      )}
 
       {/* Paused: Resume */}
-      <Button variant="neon" onClick={handleCommand('retomar')} disabled={!isPaused}>
-        ▶ Retomar
-      </Button>
+      {isPaused && (
+        <Button variant="neon" onClick={handleCommand('retomar')}>
+          ▶ Retomar
+        </Button>
+      )}
 
       {/* Challenge: Resolve, Volta Seis */}
-      <Button variant="secondary" onClick={handleCommand('resolver')} disabled={!isChallenge}>
-        ✅ Resolver
-      </Button>
-      <Button variant="secondary" onClick={handleCommand('volta seis')} disabled={!isChallenge}>
-        🔄 Volta Seis
-      </Button>
+      {isChallenge && (
+        <Button variant="secondary" onClick={handleCommand('resolver')}>
+          ✅ Resolver
+        </Button>
+      )}
+      {isChallenge && (
+        <Button variant="secondary" onClick={handleCommand('volta seis')}>
+          🔄 Volta Seis
+        </Button>
+      )}
 
       {/* Finished: Reset */}
-      <Button variant="neon" onClick={onResetMatch} disabled={!isFinished}>
-        🔄 Novo Jogo
-      </Button>
+      {isFinished && (
+        <Button variant="neon" onClick={onResetMatch}>
+          🔄 Novo Jogo
+        </Button>
+      )}
     </div>
   );
 }
