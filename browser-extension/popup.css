@@ -1,0 +1,177 @@
+/* S.O.G. Battle — Popup Styles (dark theme, compact) */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  min-width: 320px;
+  max-width: 360px;
+}
+
+.container {
+  padding: 16px;
+}
+
+/* Header */
+header {
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: #888;
+  margin-top: 2px;
+}
+
+/* Status bar */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-dot.on {
+  background: #00e676;
+  box-shadow: 0 0 6px #00e676;
+}
+
+.status-dot.off {
+  background: #ff1744;
+  box-shadow: 0 0 6px #ff1744;
+}
+
+#status-text {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Toggle button */
+.toggle-btn {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  margin-bottom: 16px;
+}
+
+.toggle-btn.inactive {
+  background: #00c853;
+  color: #000;
+}
+
+.toggle-btn.active {
+  background: #ff1744;
+  color: #fff;
+}
+
+.toggle-btn:hover {
+  opacity: 0.9;
+}
+
+/* Commands list */
+.commands-section h2,
+.log-section h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+#commands-list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  margin-bottom: 16px;
+  padding: 8px;
+  background: #16213e;
+  border-radius: 8px;
+}
+
+#commands-list li {
+  font-size: 12px;
+  color: #b0b0b0;
+  padding: 4px 0;
+}
+
+#commands-list li::before {
+  content: "🔊 ";
+}
+
+/* Log */
+.log-container {
+  background: #0f3460;
+  border-radius: 8px;
+  padding: 8px;
+  max-height: 120px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.log-placeholder {
+  color: #555;
+  font-style: italic;
+}
+
+.log-entry {
+  padding: 3px 0;
+  border-bottom: 1px solid #1a1a4e;
+  color: #ccc;
+}
+
+.log-entry .log-time {
+  color: #666;
+  font-size: 10px;
+  margin-right: 6px;
+}
+
+.log-entry .log-match {
+  color: #00e676;
+  font-weight: 600;
+}
+
+.log-entry .log-error {
+  color: #ff5252;
+}
+
+/* Scrollbar */
+.log-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.log-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.log-container::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}

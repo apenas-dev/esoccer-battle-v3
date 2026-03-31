@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>S.O.G. Battle — Voice Commands</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🎤 S.O.G. Battle</h1>
+      <p class="subtitle">Comandos de Voz</p>
+    </header>
+
+    <div class="status-bar">
+      <span id="status-indicator" class="status-dot off"></span>
+      <span id="status-text">Desativado</span>
+    </div>
+
+    <button id="toggle-btn" class="toggle-btn">Ativar</button>
+
+    <section class="commands-section">
+      <h2>Comandos disponíveis</h2>
+      <ul id="commands-list"></ul>
+    </section>
+
+    <section class="log-section">
+      <h2>Log</h2>
+      <div id="log-container" class="log-container">
+        <p class="log-placeholder">Nenhum comando reconhecido ainda…</p>
+      </div>
+    </section>
+  </div>
+
+  <script src="commands.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
