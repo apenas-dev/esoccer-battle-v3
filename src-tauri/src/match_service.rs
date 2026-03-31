@@ -37,13 +37,13 @@ pub struct MatchSnapshot {
 }
 
 /// ÚNICA função pública. Pura. Determinística.
-pub fn process(state: &MatchState, command: GameCommand) -> MatchResult {
+/// `now` — timestamp UNIX em segundos, injetado pelo caller.
+pub fn process(state: &MatchState, command: GameCommand, now: u64) -> MatchResult {
     let noop = || MatchResult { new_state: state.clone(), actions: vec![Action::NoOp] };
 
     match (&state.phase, command) {
         // Start: Idle → Playing
         (GamePhase::Idle, GameCommand::Start) => {
-            let now = chrono::Utc::now().timestamp() as u64;
             let new_state = state.clone()
                 .with_phase(GamePhase::Playing)
                 .with_started_at(now);
@@ -53,21 +53,21 @@ pub fn process(state: &MatchState, command: GameCommand) -> MatchResult {
             }
         }
 
-        // GoalA: Playing → score_a += 1
+        // GoalA: Playing → score_a += 1  (#15: sem clone desnecessário)
         (GamePhase::Playing, GameCommand::GoalA) => {
             let new_state = state.clone().with_score_a(state.score_a + 1);
             MatchResult {
-                new_state: new_state.clone(),
                 actions: vec![Action::PlaySound(SoundName::Goal), Action::EmitScoreChanged { score_a: new_state.score_a, score_b: new_state.score_b }],
+                new_state,
             }
         }
 
-        // GoalB: Playing → score_b += 1
+        // GoalB: Playing → score_b += 1  (#15: sem clone desnecessário)
         (GamePhase::Playing, GameCommand::GoalB) => {
             let new_state = state.clone().with_score_b(state.score_b + 1);
             MatchResult {
-                new_state: new_state.clone(),
                 actions: vec![Action::PlaySound(SoundName::Goal), Action::EmitScoreChanged { score_a: new_state.score_a, score_b: new_state.score_b }],
+                new_state,
             }
         }
 
@@ -93,6 +93,10 @@ pub fn process(state: &MatchState, command: GameCommand) -> MatchResult {
 
         // End: Playing/Paused → Finished
         (GamePhase::Playing | GamePhase::Paused, GameCommand::End) => {
+            // Use `now` for finished_at instead of chrono::Utc::now()
+            let finished_at = chrono::DateTime::from_timestamp(now as i64, 0)
+                .unwrap_or_else(chrono::Utc::now)
+                .to_rfc3339();
             let snapshot = MatchSnapshot {
                 match_id: state.match_id.clone(),
                 team_a_name: state.config.team_a_name.clone(),
@@ -100,18 +104,18 @@ pub fn process(state: &MatchState, command: GameCommand) -> MatchResult {
                 score_a: state.score_a,
                 score_b: state.score_b,
                 duration_secs: state.elapsed_secs,
-                finished_at: chrono::Utc::now().to_rfc3339(),
+                finished_at,
             };
             let new_state = state.clone()
                 .with_phase(GamePhase::Finished);
             MatchResult {
-                new_state: new_state.clone(),
                 actions: vec![
                     Action::StopTimer,
                     Action::SaveMatch(snapshot),
                     Action::PlaySound(SoundName::Whistle),
                     Action::EmitMatchFinished { score_a: new_state.score_a, score_b: new_state.score_b },
                 ],
+                new_state,
             }
         }
 

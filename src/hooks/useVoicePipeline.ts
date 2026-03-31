@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useState, useCallback, useRef } from 'react';
 import type { VoiceStatus } from '../types';
+import type { ISTTProvider } from '../services/stt/ISTTProvider';
 
 interface UseVoicePipelineReturn {
   voiceStatus: VoiceStatus;
@@ -12,26 +12,37 @@ interface UseVoicePipelineReturn {
 }
 
 interface UseVoicePipelineOptions {
+  provider: ISTTProvider;
   onTranscript: (text: string) => Promise<void>;
   onError?: (error: string) => void;
 }
 
-export function useVoicePipeline({ onTranscript, onError }: UseVoicePipelineOptions): UseVoicePipelineReturn {
+export function useVoicePipeline({ provider, onTranscript, onError }: UseVoicePipelineOptions): UseVoicePipelineReturn {
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>('idle');
   const [isListening, setIsListening] = useState(false);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
+  const providerRef = useRef(provider);
+  providerRef.current = provider;
+
+  // Wire up provider status callbacks
+  provider.onStatusChange = (status: 'idle' | 'listening' | 'processing') => {
+    if (status === 'idle') setVoiceStatus('idle');
+    else if (status === 'listening') setVoiceStatus('listening');
+    else if (status === 'processing') setVoiceStatus('processing');
+  };
 
   const startListening = useCallback(async () => {
     try {
       setLastError(null);
       setVoiceStatus('listening');
       setIsListening(true);
-      await invoke('start_listening');
+      await providerRef.current.start();
     } catch (e) {
       const msg = String(e);
       setLastError(msg);
       setVoiceStatus('error');
+      setIsListening(false);
       onError?.(msg);
     }
   }, [onError]);
@@ -39,7 +50,7 @@ export function useVoicePipeline({ onTranscript, onError }: UseVoicePipelineOpti
   const stopListening = useCallback(async () => {
     try {
       setVoiceStatus('processing');
-      const transcript = await invoke<string>('stop_listening');
+      const transcript = await providerRef.current.stop();
       setIsListening(false);
       setLastTranscript(transcript);
       setVoiceStatus('idle');

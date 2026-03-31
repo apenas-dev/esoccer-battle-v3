@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 export interface CommandLogEntry {
+  id: string;
   timestamp: string;
   command: string;
   result: string;
@@ -25,8 +26,8 @@ export function CommandLog({ entries }: CommandLogProps) {
         </button>
       )}
       <div className="max-h-48 overflow-y-auto space-y-1 text-xs text-gray-500">
-        {visible.map((entry, i) => (
-          <p key={i}>
+        {visible.map((entry) => (
+          <p key={entry.id}>
             <span className="text-gray-600">[{entry.timestamp}]</span>{' '}
             <span className="text-gray-300">{entry.command}</span>{' '}
             → {entry.result}

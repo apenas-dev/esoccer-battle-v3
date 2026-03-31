@@ -16,6 +16,7 @@ use config::AppConfig;
 struct AppState {
     match_state: Mutex<MatchState>,
     config: Mutex<AppConfig>,
+    voice_coordinator: Mutex<voice_coordinator::VoiceCoordinator>,
 }
 
 #[tauri::command]
@@ -26,12 +27,16 @@ async fn execute_command(
 ) -> Result<serde_json::Value, String> {
     let cmd = command::parse(&text).map_err(|e| e.reason)?;
 
+    let now = chrono::Utc::now().timestamp() as u64;
+
+    // #4: Clone state, process, then update in separate lock scopes
+    // but process() is pure — no external side effects between lock releases
     let current = {
         let guard = state.match_state.lock().map_err(|e| e.to_string())?;
         guard.clone()
     };
 
-    let result = match_service::process(&current, cmd);
+    let result = match_service::process(&current, cmd, now);
 
     action_dispatcher::dispatch(result.actions, &app).await
         .map_err(|e| format!("{:?}", e))?;
@@ -46,20 +51,37 @@ async fn execute_command(
 
 #[tauri::command]
 async fn start_listening(
-    _state: State<'_, AppState>,
-    _app: AppHandle,
+    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<(), String> {
-    // TODO: integrate with voice_coordinator
-    Ok(())
+    let config = {
+        let cfg = state.config.lock().map_err(|e| e.to_string())?;
+        Some(capture::CaptureConfig {
+            device_name: cfg.mic_device.clone(),
+            sample_rate: 16000,
+            channels: 1,
+        })
+    };
+    let mut coord = state.voice_coordinator.lock().map_err(|e| e.to_string())?;
+    let result = coord.start_listening(&app, config);
+    drop(coord);
+    result.await.map_err(|e| format!("{:?}", e))
 }
 
 #[tauri::command]
 async fn stop_listening(
-    _state: State<'_, AppState>,
-    _app: AppHandle,
-) -> Result<String, String> {
-    // TODO: integrate with voice_coordinator
-    Ok(String::new())
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<serde_json::Value, String> {
+    let mut coord = state.voice_coordinator.lock().map_err(|e| e.to_string())?;
+    let buffer = coord.stop_listening(&app).await.map_err(|e| format!("{:?}", e))?;
+    // Return buffer info; transcription happens on frontend
+    Ok(serde_json::json!({
+        "sample_count": buffer.samples.len(),
+        "sample_rate": buffer.sample_rate,
+        "duration_secs": if buffer.sample_rate > 0 { buffer.samples.len() as f64 / buffer.sample_rate as f64 } else { 0.0 },
+        "transcript": "" // placeholder — frontend will transcribe
+    }))
 }
 
 #[tauri::command]
@@ -98,11 +120,14 @@ async fn get_available_commands() -> Result<Vec<command::CommandHelp>, String> {
 }
 
 fn main() {
+    let (tx, _) = std::sync::mpsc::channel();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState {
             match_state: Mutex::new(MatchState::new(AppConfig::default().into())),
             config: Mutex::new(AppConfig::default()),
+            voice_coordinator: Mutex::new(voice_coordinator::VoiceCoordinator::new(tx)),
         })
         .setup(|app| {
             if let Some(resource_dir) = app.path().resource_dir().ok() {

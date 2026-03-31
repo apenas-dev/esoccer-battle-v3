@@ -23,16 +23,33 @@ pub struct AudioBuffer {
     pub channels: u16,
 }
 
+/// Wrapper that asserts Send — cpal::Stream isn't Send on all platforms,
+/// but it's safe to use from a single thread via Mutex in our context.
 pub struct CaptureStream {
+    inner: Option<CaptureStreamInner>,
+}
+
+struct CaptureStreamInner {
     buffer: Arc<Mutex<Vec<f32>>>,
     is_active: Arc<AtomicBool>,
-    _stream: Option<cpal::Stream>,
+    _stream: cpal::Stream,
 }
+
+// SAFETY: Access is serialized through Mutex in VoiceCoordinator/AppState
+unsafe impl Send for CaptureStream {}
+unsafe impl Send for CaptureStreamInner {}
 
 impl CaptureStream {
     pub fn start(config: CaptureConfig) -> Result<Self, CaptureError> {
         let host = cpal::default_host();
-        let device = host.default_input_device().ok_or(CaptureError::NoDevice)?;
+        let device = if let Some(ref name) = config.device_name {
+            host.input_devices()
+                .map_err(|e| CaptureError::ConfigError(e.to_string()))?
+                .find(|d| d.name().map(|n| n == *name).unwrap_or(false))
+                .ok_or_else(|| CaptureError::DeviceNotFound(name.clone()))?
+        } else {
+            host.default_input_device().ok_or(CaptureError::NoDevice)?
+        };
 
         let mut supported_configs = device.supported_input_configs()
             .map_err(|e| CaptureError::ConfigError(e.to_string()))?;
@@ -63,18 +80,22 @@ impl CaptureStream {
 
         stream.play().map_err(|e| CaptureError::StreamError(e.to_string()))?;
 
-        Ok(Self { _stream: Some(stream), buffer, is_active })
+        Ok(Self { inner: Some(CaptureStreamInner { _stream: stream, buffer, is_active }) })
     }
 
-    pub fn stop(self) -> Result<AudioBuffer, CaptureError> {
-        self.is_active.store(false, Ordering::SeqCst);
-        drop(self._stream);
-        let samples = self.buffer.lock().map_err(|e| CaptureError::StreamError(e.to_string()))?;
-        Ok(AudioBuffer {
-            samples: samples.clone(),
-            sample_rate: 16000,
-            channels: 1,
-        })
+    pub fn stop(mut self) -> Result<AudioBuffer, CaptureError> {
+        if let Some(inner) = self.inner.take() {
+            inner.is_active.store(false, Ordering::SeqCst);
+            drop(inner._stream);
+            let samples = inner.buffer.lock().map_err(|e| CaptureError::StreamError(e.to_string()))?;
+            Ok(AudioBuffer {
+                samples: samples.clone(),
+                sample_rate: 16000,
+                channels: 1,
+            })
+        } else {
+            Err(CaptureError::StreamError("Already stopped".to_string()))
+        }
     }
 
     pub fn list_devices() -> Result<Vec<String>, CaptureError> {

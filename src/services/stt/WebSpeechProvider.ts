@@ -42,11 +42,19 @@ export class WebSpeechProvider implements ISTTProvider {
   async stop(): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!this.recognition) return resolve('');
+      const timeout = setTimeout(() => {
+        this._onStatusChange?.('idle');
+        reject(new Error('Web Speech stop() timed out after 3s'));
+      }, 3000);
       this.recognition.onresult = (e: SpeechRecognitionEvent) => {
+        clearTimeout(timeout);
         const transcript = e.results[0]?.[0]?.transcript || '';
         resolve(transcript);
       };
-      this.recognition.onerror = (e: SpeechRecognitionErrorEvent) => reject(e.error);
+      this.recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+        clearTimeout(timeout);
+        reject(e.error);
+      };
       this.recognition.stop();
       this._onStatusChange?.('idle');
     });

@@ -1,5 +1,6 @@
 use crate::match_service::MatchSnapshot;
 use serde::{Serialize, Deserialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
@@ -13,8 +14,45 @@ pub struct HistoryEntry {
     pub finished_at: String,
 }
 
+fn history_path() -> PathBuf {
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("esoccer-battle")
+        .join("history.json")
+}
+
+fn ensure_dir() -> Result<(), HistoryError> {
+    let path = history_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| HistoryError::Io(e.to_string()))?;
+    }
+    Ok(())
+}
+
+fn read_entries() -> Result<Vec<HistoryEntry>, HistoryError> {
+    let path = history_path();
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    let contents = std::fs::read_to_string(&path).map_err(|e| HistoryError::Io(e.to_string()))?;
+    if contents.trim().is_empty() {
+        return Ok(vec![]);
+    }
+    serde_json::from_str(&contents).map_err(|e| HistoryError::Parse(e.to_string()))
+}
+
+fn write_entries(entries: &[HistoryEntry]) -> Result<(), HistoryError> {
+    ensure_dir()?;
+    let path = history_path();
+    let tmp_path = path.with_extension("json.tmp");
+    let contents = serde_json::to_string_pretty(entries).map_err(|e| HistoryError::Parse(e.to_string()))?;
+    std::fs::write(&tmp_path, &contents).map_err(|e| HistoryError::Io(e.to_string()))?;
+    std::fs::rename(&tmp_path, &path).map_err(|e| HistoryError::Io(e.to_string()))?;
+    Ok(())
+}
+
 pub async fn save(snapshot: MatchSnapshot) -> Result<(), HistoryError> {
-    let _entry = HistoryEntry {
+    let entry = HistoryEntry {
         id: uuid::Uuid::new_v4().to_string(),
         match_id: snapshot.match_id,
         team_a_name: snapshot.team_a_name,
@@ -24,20 +62,31 @@ pub async fn save(snapshot: MatchSnapshot) -> Result<(), HistoryError> {
         duration_secs: snapshot.duration_secs,
         finished_at: snapshot.finished_at,
     };
-    // TODO: implement file persistence
-    let _ = _entry;
+
+    let mut entries = read_entries()?;
+    entries.push(entry);
+    write_entries(&entries)?;
     Ok(())
 }
 
-pub async fn list(_limit: Option<usize>) -> Result<Vec<HistoryEntry>, HistoryError> {
-    Ok(vec![])
+pub async fn list(limit: Option<usize>) -> Result<Vec<HistoryEntry>, HistoryError> {
+    let mut entries = read_entries()?;
+    entries.reverse(); // Most recent first
+    if let Some(n) = limit {
+        entries.truncate(n);
+    }
+    Ok(entries)
 }
 
-pub async fn remove(_id: &str) -> Result<(), HistoryError> {
+pub async fn remove(id: &str) -> Result<(), HistoryError> {
+    let mut entries = read_entries()?;
+    entries.retain(|e| e.id != id);
+    write_entries(&entries)?;
     Ok(())
 }
 
 pub async fn clear() -> Result<(), HistoryError> {
+    write_entries(&[])?;
     Ok(())
 }
 
@@ -55,3 +104,5 @@ impl std::fmt::Display for HistoryError {
         }
     }
 }
+
+impl std::error::Error for HistoryError {}

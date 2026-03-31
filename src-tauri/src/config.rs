@@ -1,5 +1,6 @@
 use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
+use crate::game::TimerMode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -26,8 +27,6 @@ pub enum Language { PtBr, En, Es }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme { Dark, Light }
-
-pub use crate::game::TimerMode;
 
 impl Default for AppConfig {
     fn default() -> Self {
