@@ -1,155 +1,101 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { UnlistenFn } from '@tauri-apps/api/event';
-import type { MatchState, AppConfig, ScoreChangedPayload, TimeUpdatedPayload } from '../types';
-import { formatTime } from '../lib/utils';
+import type { MatchState, AppConfig, GamePhase } from '../types';
 
-interface UseMatchStateReturn {
-  state: MatchState | null;
-  config: AppConfig | null;
-  isLoading: boolean;
-  displayTime: string;
-  executeCommand: (text: string) => Promise<void>;
-  resetMatch: () => Promise<void>;
-  loadConfig: () => Promise<void>;
-  updateConfig: (cfg: AppConfig) => Promise<void>;
-}
-
-const DEFAULT_STATE: MatchState = {
-  phase: 'idle',
-  sub_phase: 'normal',
-  config: {
-    team_a_name: 'Time A',
-    team_b_name: 'Time B',
-    duration_secs: 600,
-    timer_mode: 'countdown',
-  },
-  score_a: 0,
-  score_b: 0,
-  elapsed_secs: 0,
-  started_at: null,
-  paused_elapsed_secs: 0,
-  match_id: '',
-};
-
-export function useMatchState(): UseMatchStateReturn {
+export function useMatchState() {
   const [state, setState] = useState<MatchState | null>(null);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [displayTime, setDisplayTime] = useState('00:00');
 
-  // Initial load
-  const loadState = useCallback(async () => {
-    try {
-      const s = await invoke<MatchState>('get_state');
-      setState(s ?? DEFAULT_STATE);
-    } catch {
-      setState(DEFAULT_STATE);
-    }
+  const formatTime = (secs: number): string => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  };
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const [matchState, appConfig] = await Promise.all([
+          invoke<MatchState>('get_state'),
+          invoke<AppConfig>('get_config'),
+        ]);
+        setState(matchState);
+        setConfig(appConfig);
+        setDisplayTime(formatTime(matchState.elapsed_secs));
+      } catch (e) {
+        console.error('Failed to load state:', e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    init();
   }, []);
 
-  const loadConfig = useCallback(async () => {
+  // Timer interval
+  useEffect(() => {
+    if (!state || state.phase !== 'playing') return;
+    const interval = setInterval(() => {
+      setState(prev => {
+        if (!prev) return prev;
+        const next = prev.elapsed_secs + 1;
+        setDisplayTime(formatTime(next));
+        return { ...prev, elapsed_secs: next };
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [state?.phase]);
+
+  // Listen to Tauri events
+  useEffect(() => {
+    const unlisteners: Array<() => void> = [];
+
+    const setup = async () => {
+      unlisteners.push(
+        await listen<GamePhase>('phase-changed', (e) => {
+          setState(prev => prev ? { ...prev, phase: e.payload } : prev);
+        }),
+        await listen<{ score_a: number; score_b: number }>('score-changed', (e) => {
+          setState(prev => prev ? { ...prev, ...e.payload } : prev);
+        }),
+        await listen<string>('timer-control', () => {
+          // Timer start/stop handled by interval
+        }),
+      );
+    };
+    setup();
+    return () => unlisteners.forEach(u => u());
+  }, []);
+
+  const executeCommand = async (text: string) => {
+    try {
+      const newState = await invoke<MatchState>('execute_command', { text });
+      setState(newState);
+      setDisplayTime(formatTime(newState.elapsed_secs));
+    } catch (e) {
+      console.error('Command failed:', e);
+    }
+  };
+
+  const loadConfig = async () => {
     try {
       const c = await invoke<AppConfig>('get_config');
       setConfig(c);
     } catch (e) {
       console.error('Failed to load config:', e);
     }
-  }, []);
-
-  useEffect(() => {
-    let unlisteners: UnlistenFn[] = [];
-
-    (async () => {
-      await Promise.all([loadState(), loadConfig()]);
-      setIsLoading(false);
-
-      const un1 = await listen<ScoreChangedPayload>('score-changed', (e) => {
-        setState((prev) => (prev ? { ...prev, score_a: e.payload.score_a, score_b: e.payload.score_b } : prev));
-      });
-      const un2 = await listen<{ phase: string; sub_phase?: string }>('phase-changed', (e) => {
-        setState((prev) =>
-          prev
-            ? {
-                ...prev,
-                phase: e.payload.phase as MatchState['phase'],
-                sub_phase: (e.payload.sub_phase as MatchState['sub_phase']) ?? prev.sub_phase,
-              }
-            : prev,
-        );
-      });
-      const un3 = await listen<TimeUpdatedPayload>('time-updated', (e) => {
-        setState((prev) => (prev ? { ...prev, elapsed_secs: e.payload.elapsed_secs } : prev));
-      });
-      const un4 = await listen<{ score_a: number; score_b: number }>('match-finished', (e) => {
-        setState((prev) =>
-          prev
-            ? {
-                ...prev,
-                phase: 'finished',
-                score_a: e.payload.score_a,
-                score_b: e.payload.score_b,
-              }
-            : prev,
-        );
-      });
-
-      // BUG 6 FIX: Removed local timer (setInterval). Backend is the single source of truth.
-      // Time is updated via 'time-updated' events from the backend (un3 above).
-
-      unlisteners = [un1, un2, un3, un4];
-    })();
-
-    return () => {
-      unlisteners.forEach((u) => u());
-    };
-  }, [loadState, loadConfig]);
-
-  // Compute displayTime
-  const displayTime = useMemo(() => {
-    if (!state) return '00:00';
-    if (state.config.timer_mode === 'countdown') {
-      const remaining = Math.max(0, state.config.duration_secs - state.elapsed_secs);
-      return formatTime(remaining);
-    }
-    return formatTime(state.elapsed_secs);
-  }, [state]);
-
-  const executeCommand = useCallback(async (text: string) => {
-    try {
-      const newState = await invoke<MatchState>('execute_command', { text });
-      if (newState) setState(newState);
-    } catch (e) {
-      console.error('Command failed:', e);
-    }
-  }, []);
-
-  const resetMatch = useCallback(async () => {
-    try {
-      await invoke('reset_match');
-      await loadState();
-    } catch (e) {
-      console.error('Reset failed:', e);
-    }
-  }, [loadState]);
-
-  const updateConfig = useCallback(async (cfg: AppConfig) => {
-    try {
-      await invoke('update_config', { newConfig: cfg });
-      setConfig(cfg);
-    } catch (e) {
-      console.error('Update config failed:', e);
-    }
-  }, []);
-
-  return {
-    state,
-    config,
-    isLoading,
-    displayTime,
-    executeCommand,
-    resetMatch,
-    loadConfig,
-    updateConfig,
   };
+
+  const updateConfig = async (newConfig: AppConfig) => {
+    try {
+      await invoke('update_config', { newConfig });
+      setConfig(newConfig);
+    } catch (e) {
+      console.error('Failed to save config:', e);
+    }
+  };
+
+  return { state, config, isLoading, displayTime, executeCommand, loadConfig, updateConfig };
 }

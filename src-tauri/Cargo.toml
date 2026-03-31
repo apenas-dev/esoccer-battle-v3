@@ -1,34 +1,18 @@
 [package]
 name = "esoccer-battle"
-version = "0.1.0"
-description = "E-Soccer Battle V3"
-authors = ["you"]
+version = "5.0.0"
 edition = "2021"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+cpal = "0.15"
+rodio = "0.20"
+dirs = "5"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
-
-[dependencies]
-anyhow = "1.0.80"
-
-cpal = "0.15.2"
-directories = "5.0.1"
-rodio = "0.19"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-unicode-normalization = "0.1"
-tauri = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
-tauri-plugin-opener = "2"
-
-whisper-rs = "0.16"
-chrono = "0.4"
-uuid = { version = "1", features = ["v4"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
-
-[patch.crates-io]
-whisper-rs-sys = { path = "../patches/whisper-rs-sys-0.15.0" }
-
-[features]
-custom-protocol = ["tauri/custom-protocol"]

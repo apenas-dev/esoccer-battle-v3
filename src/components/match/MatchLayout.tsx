@@ -1,168 +1,62 @@
-import { useState, useEffect } from 'react';
-import type { GamePhase, PlayingSubPhase, TimerMode, CommandLogEntry } from '../../types';
+import type { GamePhase, MatchConfig } from '../../types';
 import { Scoreboard } from './Scoreboard';
 import { Timer } from './Timer';
 import { Controls } from './Controls';
 import { VoiceIndicator } from './VoiceIndicator';
-import { CommandLog } from './CommandLog';
-import { generateId } from '../../lib/utils';
+import { CommandLog, CommandLogEntry } from './CommandLog';
 
 interface MatchLayoutProps {
   phase: GamePhase;
-  subPhase: PlayingSubPhase;
-  teamAName: string;
-  teamBName: string;
+  config: MatchConfig;
   scoreA: number;
   scoreB: number;
   displayTime: string;
-  timerMode: TimerMode;
-  totalDuration: number;
-  elapsed: number;
-  isLoading: boolean;
   voiceStatus: import('../../types').VoiceStatus;
-  lastTranscript: string | null;
   isListening: boolean;
-  /** BUG 2 FIX: Latest voice command text so we can log it. */
-  lastVoiceCommand: string | null;
-  /** BUG 2 FIX: Whether the last voice command succeeded. */
-  lastVoiceCommandSuccess: boolean;
-  onExecuteCommand: (text: string) => Promise<void>;
-  onResetMatch: () => Promise<void>;
-  onStartListening: () => void;
-  onStopListening: () => void;
-}
-
-function detectFlashTeam(text: string): 'a' | 'b' | null {
-  const lower = text.toLowerCase();
-  if (lower.includes('gol') && lower.includes('a')) return 'a';
-  if (lower.includes('gol') && lower.includes('b')) return 'b';
-  return null;
+  lastTranscript: string | null;
+  commandLog: CommandLogEntry[];
+  onCommand: (text: string) => void;
+  onVoiceStart: () => void;
+  onVoiceStop: () => void;
 }
 
 export function MatchLayout({
-  phase,
-  subPhase,
-  teamAName,
-  teamBName,
-  scoreA,
-  scoreB,
-  displayTime,
-  timerMode,
-  totalDuration,
-  elapsed,
-  isLoading,
-  voiceStatus,
-  lastTranscript,
-  isListening,
-  lastVoiceCommand,
-  lastVoiceCommandSuccess,
-  onExecuteCommand,
-  onResetMatch,
-  onStartListening,
-  onStopListening,
+  phase, config, scoreA, scoreB, displayTime,
+  voiceStatus, isListening, lastTranscript, commandLog,
+  onCommand, onVoiceStart, onVoiceStop,
 }: MatchLayoutProps) {
-  const [flashTeam, setFlashTeam] = useState<'a' | 'b' | null>(null);
-  // BUG 2 FIX: Single source of truth for command log — lives here, receives both button and voice commands
-  const [logEntries, setLogEntries] = useState<CommandLogEntry[]>([]);
-
-  // BUG 2 FIX: Log voice commands only after execution result is known.
-  // MatchPage passes `lastVoiceCommand` and `lastVoiceCommandSuccess`.
-  // We track which commands we've already logged to avoid duplicates.
-  const [loggedVoiceCommand, setLoggedVoiceCommand] = useState<{ text: string; success: boolean } | null>(null);
-
-  useEffect(() => {
-    if (
-      lastVoiceCommand &&
-      (!loggedVoiceCommand || loggedVoiceCommand.text !== lastVoiceCommand || loggedVoiceCommand.success !== lastVoiceCommandSuccess)
-    ) {
-      const entry = { text: lastVoiceCommand, success: lastVoiceCommandSuccess };
-      setLoggedVoiceCommand(entry);
-      setLogEntries((prev) => [
-        ...prev,
-        {
-          id: generateId(),
-          timestamp: new Date(),
-          command: lastVoiceCommand,
-          source: 'voice',
-          success: lastVoiceCommandSuccess,
-        },
-      ]);
-      const flash = detectFlashTeam(lastVoiceCommand);
-      if (flash) {
-        setFlashTeam(flash);
-        setTimeout(() => setFlashTeam(null), 600);
-      }
-    }
-  }, [lastVoiceCommand, lastVoiceCommandSuccess, loggedVoiceCommand]);
-
-  const handleCommand = async (text: string) => {
-    setLogEntries((prev) => [
-      ...prev,
-      {
-        id: generateId(),
-        timestamp: new Date(),
-        command: text,
-        source: 'button',
-        success: text !== '',
-      },
-    ]);
-
-    // BUG 3 FIX: Flash effect for goal button commands
-    const flash = detectFlashTeam(text);
-    if (flash) {
-      setFlashTeam(flash);
-      setTimeout(() => setFlashTeam(null), 600);
-    }
-
-    await onExecuteCommand(text);
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-lg text-[var(--text-secondary)]">Carregando...</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col items-center gap-6">
+    <div className="flex flex-col items-center justify-center min-h-screen p-6">
+      <h1 className="text-2xl font-bold text-gray-300 mb-8">⚽ E-Soccer Battle</h1>
+      
       <Scoreboard
-        teamAName={teamAName}
-        teamBName={teamBName}
+        teamAName={config.team_a_name}
+        teamBName={config.team_b_name}
         scoreA={scoreA}
         scoreB={scoreB}
         phase={phase}
-        subPhase={subPhase}
-        flashTeam={flashTeam}
       />
 
       <Timer
         displayTime={displayTime}
         phase={phase}
-        timerMode={timerMode}
-        totalDuration={totalDuration}
-        elapsed={elapsed}
+        durationSecs={config.duration_secs}
+        timerMode={config.timer_mode}
       />
 
-      <VoiceIndicator
-        status={voiceStatus}
-        lastTranscript={lastTranscript}
-        isListening={isListening}
-        onStart={onStartListening}
-        onStop={onStopListening}
-      />
+      <Controls phase={phase} onCommand={onCommand} />
 
-      <Controls
-        phase={phase}
-        subPhase={subPhase}
-        onExecuteCommand={handleCommand}
-        onResetMatch={onResetMatch}
-      />
+      {phase !== 'finished' && (
+        <VoiceIndicator
+          status={voiceStatus}
+          isListening={isListening}
+          lastTranscript={lastTranscript}
+          onStart={onVoiceStart}
+          onStop={onVoiceStop}
+        />
+      )}
 
-      <CommandLog entries={logEntries} />
+      <CommandLog entries={commandLog} />
     </div>
   );
 }
-
-export type { MatchLayoutProps };

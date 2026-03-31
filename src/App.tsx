@@ -1,47 +1,46 @@
-import { useState, useEffect } from 'react';
-import { AppShell } from './components/layout/AppShell';
-import { MatchPage } from './pages/MatchPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { HistoryPage } from './pages/HistoryPage';
-import { HelpPage } from './pages/HelpPage';
-import type { Page, Theme } from './types';
+import { useState } from 'react';
+import { useMatchState } from './hooks/useMatchState';
+import { useVoicePipeline } from './hooks/useVoicePipeline';
+import { MatchLayout } from './components/match/MatchLayout';
+import type { CommandLogEntry } from './components/match/CommandLog';
 
 export default function App() {
-  const [page, setPage] = useState<Page>('match');
-  const [theme, setTheme] = useState<Theme>(() => {
-    return (localStorage.getItem('theme') as Theme) || 'dark';
+  const { state, config, isLoading, displayTime, executeCommand } = useMatchState();
+  const [commandLog, setCommandLog] = useState<CommandLogEntry[]>([]);
+
+  const handleCommand = async (text: string) => {
+    const timestamp = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    await executeCommand(text);
+    const resultLabel = text.toLowerCase().includes('gol') ? '⚽ GOL!' : '✅ OK';
+    setCommandLog(prev => [...prev, { timestamp, command: text, result: resultLabel }]);
+  };
+
+  const { voiceStatus, isListening, lastTranscript, startListening, stopListening } = useVoicePipeline({
+    onTranscript: handleCommand,
   });
 
-  useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
-  };
-
-  const renderPage = () => {
-    switch (page) {
-      case 'match':
-        return <MatchPage />;
-      case 'settings':
-        return <SettingsPage />;
-      case 'history':
-        return <HistoryPage />;
-      case 'help':
-        return <HelpPage />;
-    }
-  };
+  if (isLoading || !state || !config) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <p className="text-gray-400">Carregando...</p>
+      </div>
+    );
+  }
 
   return (
-    <AppShell currentPage={page} onNavigate={setPage} theme={theme} onToggleTheme={toggleTheme}>
-      {renderPage()}
-    </AppShell>
+    <MatchLayout
+      phase={state.phase}
+      config={state.config}
+      scoreA={state.score_a}
+      scoreB={state.score_b}
+      displayTime={displayTime}
+      voiceStatus={voiceStatus}
+      isListening={isListening}
+      lastTranscript={lastTranscript}
+      commandLog={commandLog}
+      onCommand={handleCommand}
+      onVoiceStart={startListening}
+      onVoiceStop={stopListening}
+    />
   );
 }

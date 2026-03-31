@@ -1,129 +1,50 @@
+use tauri::{AppHandle, Emitter};
+use crate::match_service::{Action, SoundName, MatchSnapshot};
 use crate::audio;
 use crate::history;
-use crate::match_service::Action;
-use tauri::Emitter;
+
+pub async fn dispatch(
+    actions: Vec<Action>,
+    app_handle: &AppHandle,
+) -> Result<(), DispatchError> {
+    for action in actions {
+        match action {
+            Action::PlaySound(sound) => {
+                let sound_file = match sound {
+                    SoundName::Goal => audio::SoundFile::Goal,
+                    SoundName::Whistle => audio::SoundFile::Whistle,
+                };
+                audio::play(sound_file).await.map_err(|e| DispatchError::Audio(e.to_string()))?;
+            }
+            Action::EmitPhaseChanged(p) => {
+                app_handle.emit("phase-changed", p).map_err(|e| DispatchError::Emit(e.to_string()))?;
+            }
+            Action::EmitScoreChanged { score_a, score_b } => {
+                app_handle.emit("score-changed", serde_json::json!({ "score_a": score_a, "score_b": score_b }))
+                    .map_err(|e| DispatchError::Emit(e.to_string()))?;
+            }
+            Action::EmitMatchFinished { score_a, score_b } => {
+                app_handle.emit("match-finished", serde_json::json!({ "score_a": score_a, "score_b": score_b }))
+                    .map_err(|e| DispatchError::Emit(e.to_string()))?;
+            }
+            Action::SaveMatch(snapshot) => {
+                history::save(snapshot).await.map_err(|e| DispatchError::History(e.to_string()))?;
+            }
+            Action::StartTimer => {
+                app_handle.emit("timer-control", "start").map_err(|e| DispatchError::Emit(e.to_string()))?;
+            }
+            Action::StopTimer => {
+                app_handle.emit("timer-control", "stop").map_err(|e| DispatchError::Emit(e.to_string()))?;
+            }
+            Action::NoOp => {}
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug)]
 pub enum DispatchError {
     Audio(String),
     History(String),
     Emit(String),
-}
-
-impl std::fmt::Display for DispatchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DispatchError::Audio(s) => write!(f, "Audio error: {}", s),
-            DispatchError::History(s) => write!(f, "History error: {}", s),
-            DispatchError::Emit(s) => write!(f, "Emit error: {}", s),
-        }
-    }
-}
-
-/// Executa todas as ações em sequência
-pub fn dispatch(actions: Vec<Action>, app_handle: &tauri::AppHandle) -> Result<(), DispatchError> {
-    for action in actions {
-        execute_action(action, app_handle)?;
-    }
-    Ok(())
-}
-
-/// Executa uma única ação
-fn execute_action(action: Action, app_handle: &tauri::AppHandle) -> Result<(), DispatchError> {
-    match action {
-        Action::PlaySound(sound) => {
-            // FIX 8: Use SoundFile::from_name instead of inline mapping
-            let name = match sound {
-                crate::match_service::SoundName::Goal => "goal",
-                crate::match_service::SoundName::Whistle => "whistle",
-                crate::match_service::SoundName::SixMeters => "six_meters",
-                crate::match_service::SoundName::Challenge => "challenge",
-            };
-            let sound_file = audio::SoundFile::from_name(name)
-                .ok_or_else(|| DispatchError::Audio(format!("Unknown sound: {}", name)))?;
-            audio::play(sound_file).map_err(|e| DispatchError::Audio(e.to_string()))
-        }
-
-        // FIX 1: EmitPhaseChanged now carries sub_phase
-        Action::EmitPhaseChanged { phase, sub_phase } => {
-            let payload = PhasePayload {
-                phase: phase.to_string(),
-                sub_phase: sub_phase.to_string(),
-            };
-            emit_event(app_handle, "phase-changed", &payload)
-        }
-
-        Action::EmitScoreChanged { score_a, score_b } => {
-            let payload = ScorePayload { score_a, score_b };
-            emit_event(app_handle, "score-changed", &payload)
-        }
-
-        Action::EmitTimeUpdated {
-            elapsed_secs,
-            display,
-        } => {
-            let payload = TimePayload {
-                elapsed_secs,
-                display,
-            };
-            emit_event(app_handle, "time-updated", &payload)
-        }
-
-        Action::EmitMatchFinished { score_a, score_b } => {
-            let payload = ScorePayload { score_a, score_b };
-            emit_event(app_handle, "match-finished", &payload)
-        }
-
-        // FIX 6: Spawn history::save in background thread to avoid blocking main
-        Action::SaveMatch(snapshot) => {
-            let app = app_handle.clone();
-            std::thread::spawn(move || {
-                if let Err(e) = history::save(snapshot) {
-                    tracing::error!("Failed to save match history: {}", e);
-                }
-                let _ = app.emit("history-updated", ());
-            });
-            Ok(())
-        }
-
-        Action::StartTimer => {
-            // Timer is managed by main.rs via TimerManager, not here
-            Ok(())
-        }
-
-        Action::StopTimer => {
-            // Timer is managed by main.rs via TimerManager, not here
-            Ok(())
-        }
-
-        Action::NoOp => Ok(()),
-    }
-}
-
-fn emit_event<T: serde::Serialize>(
-    app_handle: &tauri::AppHandle,
-    name: &str,
-    payload: &T,
-) -> Result<(), DispatchError> {
-    app_handle
-        .emit(name, payload)
-        .map_err(|e| DispatchError::Emit(e.to_string()))
-}
-
-#[derive(serde::Serialize)]
-struct PhasePayload {
-    phase: String,
-    sub_phase: String,
-}
-
-#[derive(serde::Serialize)]
-struct ScorePayload {
-    score_a: u32,
-    score_b: u32,
-}
-
-#[derive(serde::Serialize)]
-struct TimePayload {
-    elapsed_secs: u64,
-    display: String,
 }

@@ -1,53 +1,33 @@
-import type { ISTTProvider } from './ISTTProvider';
 import { invoke } from '@tauri-apps/api/core';
+import type { ISTTProvider } from './ISTTProvider';
 
 export class WhisperProvider implements ISTTProvider {
   readonly name = 'whisper';
+  private _onStatusChange?: (status: 'idle' | 'listening' | 'processing') => void;
 
-  /** BUG 4 FIX: Store model and language for future backend use. */
-  readonly model: string;
-  readonly language: string;
+  constructor() {}
 
-  /** Track whether we have an active listening session so cancel can stop it. */
-  private _isListening = false;
-
-  constructor(model: string = 'base', language: string = 'pt-BR') {
-    this.model = model;
-    this.language = language;
+  set onStatusChange(cb: (status: 'idle' | 'listening' | 'processing') => void) {
+    this._onStatusChange = cb;
   }
 
   async isAvailable(): Promise<boolean> {
-    return true;
+    return true; // Always available via Tauri backend
   }
 
   async start(): Promise<void> {
-    this._isListening = true;
-    this.onStatusChange?.('listening');
+    this._onStatusChange?.('listening');
     await invoke('start_listening');
   }
 
   async stop(): Promise<string> {
-    this._isListening = false;
-    this.onStatusChange?.('processing');
+    this._onStatusChange?.('processing');
     const transcript = await invoke<string>('stop_listening');
-    return transcript ?? '';
+    this._onStatusChange?.('idle');
+    return transcript;
   }
 
-  /**
-   * Cancel an in-flight listening session.
-   * Uses stop_listening as the sole backend call — cancel_listening will be
-   * added by the backend team later and can be wired up here then.
-   */
   cancel(): void {
-    if (!this._isListening) {
-      this.onStatusChange?.('idle');
-      return;
-    }
-    this._isListening = false;
-    this.onStatusChange?.('idle');
-    // Fire-and-forget: tell the backend to stop capturing audio.
-    invoke('stop_listening').catch(() => {});
+    this._onStatusChange?.('idle');
   }
-
-  onStatusChange?: (status: 'idle' | 'listening' | 'processing') => void;
 }

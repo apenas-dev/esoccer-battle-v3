@@ -1,60 +1,38 @@
-import type { GamePhase, TimerMode } from '../../types';
-import { cn } from '../../lib/utils';
-
 interface TimerProps {
   displayTime: string;
-  phase: GamePhase;
-  timerMode: TimerMode;
-  totalDuration: number;
-  elapsed: number;
+  phase: string;
+  durationSecs: number;
+  timerMode: string;
 }
 
-export function Timer({ displayTime, phase, timerMode, totalDuration, elapsed }: TimerProps) {
-  const isActive = phase === 'playing';
-  const progress = timerMode === 'countdown'
-    ? Math.max(0, 1 - elapsed / totalDuration)
-    : Math.min(1, elapsed / totalDuration);
+export function Timer({ displayTime, phase, durationSecs, timerMode }: TimerProps) {
+  const elapsedSecs = (() => {
+    const parts = displayTime.split(':').map(Number);
+    return (parts[0] ?? 0) * 60 + (parts[1] ?? 0);
+  })();
 
-  const circumference = 2 * Math.PI * 45;
-  const strokeDashoffset = circumference * (1 - progress);
+  const progress = timerMode === 'countdown' && durationSecs > 0
+    ? Math.max(0, Math.min(100, ((durationSecs - elapsedSecs) / durationSecs) * 100))
+    : 0;
 
-  const isLow = timerMode === 'countdown' && progress < 0.1 && isActive;
+  const isPlaying = phase === 'playing';
+  const isPaused = phase === 'paused';
 
   return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="relative flex h-32 w-32 items-center justify-center">
-        <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100">
-          {/* Background circle */}
-          <circle cx="50" cy="50" r="45" fill="none" stroke="var(--border-color)" strokeWidth="4" />
-          {/* Progress circle */}
-          <circle
-            cx="50"
-            cy="50"
-            r="45"
-            fill="none"
-            stroke={isLow ? '#ff3131' : '#39ff14'}
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            className={cn(isActive ? 'transition-all duration-1000' : 'transition-none')}
-            style={{ filter: isLow ? 'drop-shadow(0 0 6px #ff3131)' : 'drop-shadow(0 0 6px #39ff14)' }}
-          />
-        </svg>
-        <span
-          className={cn(
-            'text-3xl font-bold tabular-nums',
-            isLow && 'neon-glow-red text-neon-red',
-            isActive && !isLow && 'neon-glow-green text-neon-green',
-            !isActive && 'text-[var(--text-secondary)]',
-          )}
-        >
-          {displayTime}
-        </span>
+    <div className="w-full max-w-md mx-auto">
+      <div className="text-center">
+        <p className={`text-4xl font-mono font-bold ${isPaused ? 'text-yellow-400' : isPlaying ? 'text-white' : 'text-gray-400'}`}>
+          {isPaused ? '⏸ ' : ''}{displayTime}
+        </p>
+        {timerMode === 'countdown' && durationSecs > 0 && (
+          <div className="mt-3 h-2 bg-gray-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 transition-all duration-1000 rounded-full"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        )}
       </div>
-      <span className="text-xs text-[var(--text-secondary)]">
-        {timerMode === 'countdown' ? 'Regressivo' : 'Progressivo'}
-      </span>
     </div>
   );
 }

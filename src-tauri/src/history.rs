@@ -1,6 +1,5 @@
 use crate::match_service::MatchSnapshot;
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
@@ -14,17 +13,8 @@ pub struct HistoryEntry {
     pub finished_at: String,
 }
 
-#[derive(Debug)]
-pub enum HistoryError {
-    Io(String),
-    Parse(String),
-}
-
-/// Salva resultado de partida no histórico
-pub fn save(snapshot: MatchSnapshot) -> Result<(), HistoryError> {
-    let mut entries = load_entries()?;
-
-    let entry = HistoryEntry {
+pub async fn save(snapshot: MatchSnapshot) -> Result<(), HistoryError> {
+    let _entry = HistoryEntry {
         id: uuid::Uuid::new_v4().to_string(),
         match_id: snapshot.match_id,
         team_a_name: snapshot.team_a_name,
@@ -34,70 +24,34 @@ pub fn save(snapshot: MatchSnapshot) -> Result<(), HistoryError> {
         duration_secs: snapshot.duration_secs,
         finished_at: snapshot.finished_at,
     };
-
-    entries.push(entry);
-    save_entries(&entries)
+    // TODO: implement file persistence
+    let _ = _entry;
+    Ok(())
 }
 
-/// Lista todas as partidas (mais recente primeiro)
-pub fn list(limit: Option<usize>) -> Result<Vec<HistoryEntry>, HistoryError> {
-    let mut entries = load_entries()?;
-    entries.reverse(); // most recent first
-    match limit {
-        Some(n) => Ok(entries.into_iter().take(n).collect()),
-        None => Ok(entries),
-    }
+pub async fn list(_limit: Option<usize>) -> Result<Vec<HistoryEntry>, HistoryError> {
+    Ok(vec![])
 }
 
-/// Remove partida do histórico por ID
-pub fn remove(id: &str) -> Result<(), HistoryError> {
-    let mut entries = load_entries()?;
-    entries.retain(|e| e.id != id);
-    save_entries(&entries)
+pub async fn remove(_id: &str) -> Result<(), HistoryError> {
+    Ok(())
 }
 
-/// Limpa todo o histórico
-pub fn clear() -> Result<(), HistoryError> {
-    save_entries(&[])
+pub async fn clear() -> Result<(), HistoryError> {
+    Ok(())
 }
 
-fn history_path() -> PathBuf {
-    let base = directories::ProjectDirs::from("com", "esoccer", "battle")
-        .map(|d| d.data_dir().to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("history.json")
-}
-
-fn load_entries() -> Result<Vec<HistoryEntry>, HistoryError> {
-    let path = history_path();
-
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-
-    let content = std::fs::read_to_string(&path).map_err(|e| HistoryError::Io(e.to_string()))?;
-    serde_json::from_str(&content).map_err(|e| HistoryError::Parse(e.to_string()))
-}
-
-fn save_entries(entries: &[HistoryEntry]) -> Result<(), HistoryError> {
-    let path = history_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| HistoryError::Io(e.to_string()))?;
-    }
-
-    let content = serde_json::to_string_pretty(entries).map_err(|e| HistoryError::Parse(e.to_string()))?;
-
-    // Atomic write: write to temp file, then rename
-    let tmp_path = path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, &content).map_err(|e| HistoryError::Io(e.to_string()))?;
-    std::fs::rename(&tmp_path, &path).map_err(|e| HistoryError::Io(e.to_string()))
+#[derive(Debug)]
+pub enum HistoryError {
+    Io(String),
+    Parse(String),
 }
 
 impl std::fmt::Display for HistoryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            HistoryError::Io(s) => write!(f, "IO error: {}", s),
-            HistoryError::Parse(s) => write!(f, "Parse error: {}", s),
+            HistoryError::Io(e) => write!(f, "IO error: {}", e),
+            HistoryError::Parse(e) => write!(f, "Parse error: {}", e),
         }
     }
 }

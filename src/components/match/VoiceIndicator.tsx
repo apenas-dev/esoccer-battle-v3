@@ -1,70 +1,46 @@
-import { motion } from 'framer-motion';
 import type { VoiceStatus } from '../../types';
-import { cn } from '../../lib/utils';
 
 interface VoiceIndicatorProps {
   status: VoiceStatus;
-  lastTranscript: string | null;
   isListening: boolean;
+  lastTranscript: string | null;
   onStart: () => void;
   onStop: () => void;
 }
 
-export function VoiceIndicator({ status, lastTranscript, isListening, onStart, onStop }: VoiceIndicatorProps) {
+export function VoiceIndicator({ status, isListening, lastTranscript, onStart, onStop }: VoiceIndicatorProps) {
   return (
-    <div className="flex flex-col items-center gap-3">
-      {/* PTT Button */}
-      <motion.button
+    <div className="mt-6 text-center">
+      <button
         onMouseDown={onStart}
         onMouseUp={onStop}
         onTouchStart={onStart}
         onTouchEnd={onStop}
-        className={cn(
-          'relative flex h-20 w-20 items-center justify-center rounded-full text-3xl transition-colors',
+        className={`w-20 h-20 rounded-full text-2xl transition-all duration-150 select-none ${
           isListening
-            ? 'bg-neon-red text-white'
-            : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-2 border-[var(--border-color)]',
-        )}
-        animate={isListening ? { scale: [1, 1.1, 1] } : { scale: 1 }}
-        transition={{ duration: 0.8, repeat: isListening ? Infinity : 0 }}
-        aria-label={
-          status === 'listening'
-            ? 'Ouvindo - Toque para parar'
-            : status === 'processing'
-              ? 'Processando comando de voz'
-              : status === 'error'
-                ? 'Erro no reconhecimento de voz'
-                : lastTranscript
-                  ? 'Pronto - Toque para falar novamente'
-                  : 'Microfone desligado - Toque para falar'
-        }
+            ? 'bg-red-600 hover:bg-red-700 animate-pulse shadow-lg shadow-red-600/50'
+            : 'bg-gray-700 hover:bg-gray-600'
+        }`}
       >
-        🎤
-        {isListening && (
-          <motion.div
-            className="absolute h-20 w-20 rounded-full border-4 border-neon-red"
-            animate={{ scale: [1, 1.5], opacity: [0.6, 0] }}
-            transition={{ duration: 1, repeat: Infinity }}
-          />
-        )}
-      </motion.button>
+        {isListening ? '🎤' : '🎙️'}
+      </button>
+      
+      <p className="mt-2 text-sm text-gray-400">
+        {isListening ? 'Ouvindo...' : 'Segure para falar'}
+      </p>
 
-      {/* Status */}
-      <div className="text-center">
-        <span className="text-xs text-[var(--text-secondary)]">
-          {status === 'listening' && '🎤 Ouvindo...'}
-          {status === 'processing' && '⏳ Processando...'}
-          {status === 'error' && '❌ Erro'}
-          {status === 'idle' && !lastTranscript && 'Pressione para falar'}
-          {status === 'idle' && lastTranscript && 'Pronto'}
-        </span>
-      </div>
+      {status === 'processing' && (
+        <p className="mt-1 text-sm text-yellow-400">⏳ Processando...</p>
+      )}
 
-      {/* Last transcript */}
-      {lastTranscript && (
-        <div className="rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] px-3 py-1.5 text-sm text-[var(--text-secondary)] max-w-xs text-center">
-          &ldquo;{lastTranscript}&rdquo;
-        </div>
+      {status === 'error' && (
+        <p className="mt-1 text-sm text-red-400">❌ Erro na transcrição</p>
+      )}
+
+      {lastTranscript && !isListening && (
+        <p className="mt-2 text-xs text-gray-500 italic">
+          Último: "{lastTranscript}"
+        </p>
       )}
     </div>
   );

@@ -1,60 +1,38 @@
-import { useEffect, useRef } from 'react';
-import type { CommandLogEntry } from '../../types';
-import { cn } from '../../lib/utils';
+import { useState } from 'react';
+
+export interface CommandLogEntry {
+  timestamp: string;
+  command: string;
+  result: string;
+}
 
 interface CommandLogProps {
   entries: CommandLogEntry[];
 }
 
 export function CommandLog({ entries }: CommandLogProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [entries]);
-
-  if (entries.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed border-[var(--border-color)] p-4 text-center text-sm text-[var(--text-secondary)]">
-        Nenhum comando executado
-      </div>
-    );
-  }
+  const [isExpanded, setIsExpanded] = useState(false);
+  const visible = isExpanded ? entries : entries.slice(-5);
 
   return (
-    <div ref={scrollRef} className="max-h-48 overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)]">
-      {entries.map((entry) => (
-        <div
-          key={entry.id}
-          className={cn(
-            'flex items-center justify-between border-b border-[var(--border-color)] px-3 py-2 text-sm last:border-b-0',
-          )}
+    <div className="mt-6 text-center">
+      {entries.length > 0 && (
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="text-xs text-gray-500 hover:text-gray-400 mb-2"
         >
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                'rounded-full px-1.5 py-0.5 text-xs font-medium',
-                entry.source === 'voice'
-                  ? 'bg-neon-blue/20 text-neon-blue'
-                  : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)]',
-              )}
-            >
-              {entry.source === 'voice' ? '🎤' : '🖱️'}
-            </span>
-            <span className="font-medium text-[var(--text-primary)]">{entry.command}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[var(--text-secondary)]">
-              {entry.timestamp.toLocaleTimeString('pt-BR')}
-            </span>
-            <span className={entry.success ? 'text-neon-green' : 'text-neon-red'}>
-              {entry.success ? '✓' : '✗'}
-            </span>
-          </div>
-        </div>
-      ))}
+          {isExpanded ? '↑ Recolher' : `↓ Log (${entries.length})`}
+        </button>
+      )}
+      <div className="max-h-48 overflow-y-auto space-y-1 text-xs text-gray-500">
+        {visible.map((entry, i) => (
+          <p key={i}>
+            <span className="text-gray-600">[{entry.timestamp}]</span>{' '}
+            <span className="text-gray-300">{entry.command}</span>{' '}
+            → {entry.result}
+          </p>
+        ))}
+      </div>
     </div>
   );
 }

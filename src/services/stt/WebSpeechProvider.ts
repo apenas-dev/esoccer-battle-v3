@@ -2,84 +2,58 @@ import type { ISTTProvider } from './ISTTProvider';
 
 export class WebSpeechProvider implements ISTTProvider {
   readonly name = 'web-speech';
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private recognition: any = null;
-  private transcriptResolve: ((value: string) => void) | null = null;
+  private recognition: SpeechRecognition | null = null;
   private lang: string;
+  private _onStatusChange?: (status: 'idle' | 'listening' | 'processing') => void;
 
   constructor(lang: string = 'pt-BR') {
     this.lang = lang;
   }
 
+  set onStatusChange(cb: (status: 'idle' | 'listening' | 'processing') => void) {
+    this._onStatusChange = cb;
+  }
+
   async isAvailable(): Promise<boolean> {
-    return 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
   }
 
   async start(): Promise<void> {
-    if (!this.recognition) {
-      this.createRecognition();
-    }
-    this.onStatusChange?.('listening');
-    this.recognition?.start();
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) throw new Error('Web Speech API not available');
+    
+    this.recognition = new SR();
+    this.recognition.lang = this.lang;
+    this.recognition.continuous = false;
+    this.recognition.interimResults = false;
+    
+    this.recognition.onstart = () => this._onStatusChange?.('listening');
+    this.recognition.onresult = () => {
+      this._onStatusChange?.('processing');
+    };
+    this.recognition.onerror = () => {
+      this._onStatusChange?.('idle');
+    };
+    
+    this.recognition.start();
+    this._onStatusChange?.('listening');
   }
 
   async stop(): Promise<string> {
-    this.onStatusChange?.('processing');
-    this.recognition?.stop();
-    return new Promise<string>((resolve) => {
-      this.transcriptResolve = resolve;
+    return new Promise((resolve, reject) => {
+      if (!this.recognition) return resolve('');
+      this.recognition.onresult = (e: SpeechRecognitionEvent) => {
+        const transcript = e.results[0]?.[0]?.transcript || '';
+        resolve(transcript);
+      };
+      this.recognition.onerror = (e: SpeechRecognitionErrorEvent) => reject(e.error);
+      this.recognition.stop();
+      this._onStatusChange?.('idle');
     });
   }
 
   cancel(): void {
-    this.cleanup();
-  }
-
-  onStatusChange?: (status: 'idle' | 'listening' | 'processing') => void;
-
-  private createRecognition(): void {
-    const win = window as unknown as Record<string, new () => any>;
-    const SpeechRecognitionCtor = win.SpeechRecognition || win.webkitSpeechRecognition;
-
-    if (!SpeechRecognitionCtor) {
-      console.warn('Web Speech API not available');
-      return;
-    }
-
-    this.recognition = new SpeechRecognitionCtor();
-    this.recognition.continuous = false;
-    this.recognition.interimResults = false;
-    this.recognition.lang = this.lang;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.recognition.onresult = (event: any) => {
-      const transcript = event.results[0]?.[0]?.transcript?.trim() ?? '';
-      this.transcriptResolve?.(transcript);
-      this.transcriptResolve = null;
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.recognition.onerror = (_event: any) => {
-      this.transcriptResolve?.('');
-      this.transcriptResolve = null;
-    };
-
-    this.recognition.onend = () => {
-      this.onStatusChange?.('idle');
-    };
-  }
-
-  private cleanup(): void {
-    if (this.recognition) {
-      try {
-        this.recognition.abort();
-      } catch {
-        // ignore
-      }
-      this.recognition = null;
-    }
-    this.transcriptResolve?.('');
-    this.transcriptResolve = null;
+    this.recognition?.stop();
+    this._onStatusChange?.('idle');
   }
 }

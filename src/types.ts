@@ -1,14 +1,11 @@
-// --- Enums (espelho Rust) ---
-
+// --- Enums (mirror Rust) ---
 export type GamePhase = 'idle' | 'playing' | 'paused' | 'finished';
-export type PlayingSubPhase = 'normal' | 'challenge';
-export type TimerMode = 'countdown' | 'countup';
+export type TimerMode = 'countdown' | 'count_up';
 export type WhisperModel = 'tiny' | 'base' | 'small';
 export type Language = 'pt_br' | 'en' | 'es';
 export type Theme = 'dark' | 'light';
 
 // --- State ---
-
 export interface MatchConfig {
   team_a_name: string;
   team_b_name: string;
@@ -18,7 +15,6 @@ export interface MatchConfig {
 
 export interface MatchState {
   phase: GamePhase;
-  sub_phase: PlayingSubPhase;
   config: MatchConfig;
   score_a: number;
   score_b: number;
@@ -42,7 +38,6 @@ export interface AppConfig {
 }
 
 // --- History ---
-
 export interface HistoryEntry {
   id: string;
   match_id: string;
@@ -54,8 +49,7 @@ export interface HistoryEntry {
   finished_at: string;
 }
 
-// --- Command Help ---
-
+// --- Commands ---
 export interface CommandHelp {
   command: string;
   description: string;
@@ -63,7 +57,6 @@ export interface CommandHelp {
 }
 
 // --- Voice ---
-
 export type VoiceStatus = 'idle' | 'listening' | 'processing' | 'error';
 
 export interface VoiceEvent {
@@ -72,33 +65,6 @@ export interface VoiceEvent {
   error?: string;
 }
 
-// --- Tauri Event Payloads ---
-
-export interface ScoreChangedPayload {
-  score_a: number;
-  score_b: number;
-}
-
-export interface TimeUpdatedPayload {
-  elapsed_secs: number;
-  display: string;
-}
-
-export interface MatchFinishedPayload {
-  score_a: number;
-  score_b: number;
-}
-
-// --- Command Log ---
-
-export interface CommandLogEntry {
-  id: string;
-  timestamp: Date;
-  command: string;
-  source: 'voice' | 'button';
-  success: boolean;
-}
-
-// --- Page ---
-
-export type Page = 'match' | 'settings' | 'history' | 'help';
+// --- Event Payloads ---
+export interface ScoreChangedPayload { score_a: number; score_b: number; }
+export interface MatchFinishedPayload { score_a: number; score_b: number; }

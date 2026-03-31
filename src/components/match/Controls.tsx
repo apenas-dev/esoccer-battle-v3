@@ -1,83 +1,42 @@
 import { Button } from '../ui/Button';
-import type { GamePhase, PlayingSubPhase } from '../../types';
+import type { GamePhase } from '../../types';
 
 interface ControlsProps {
   phase: GamePhase;
-  subPhase: PlayingSubPhase;
-  onExecuteCommand: (text: string) => Promise<void>;
-  onResetMatch: () => Promise<void>;
+  onCommand: (text: string) => void;
 }
 
-export function Controls({ phase, subPhase, onExecuteCommand, onResetMatch }: ControlsProps) {
-  const isIdle = phase === 'idle';
-  const isPlaying = phase === 'playing' && subPhase === 'normal';
-  const isPaused = phase === 'paused';
-  const isChallenge = phase === 'playing' && subPhase === 'challenge';
-  const isFinished = phase === 'finished';
-  const isPlayingAny = phase === 'playing';
-
-  const handleCommand = (cmd: string) => () => onExecuteCommand(cmd);
-
+export function Controls({ phase, onCommand }: ControlsProps) {
   return (
-    <div className="flex flex-wrap items-center justify-center gap-2">
-      {/* Idle: Start */}
-      {isIdle && (
-        <Button variant="neon" onClick={handleCommand('start')}>
-          ▶ Iniciar
+    <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
+      {phase === 'idle' && (
+        <Button variant="success" onClick={() => onCommand('iniciar')}>
+          🏟️ Iniciar Partida
         </Button>
       )}
 
-      {/* Playing Normal: Pause, Goal A, Goal B, Doubt */}
-      {isPlaying && (
-        <Button variant="secondary" onClick={handleCommand('pause')}>
-          ⏸ Pausar
-        </Button>
+      {phase === 'playing' && (
+        <>
+          <Button variant="primary" onClick={() => onCommand('gol do time a')}>
+            ⚽ Gol Time A
+          </Button>
+          <Button variant="primary" onClick={() => onCommand('gol do time b')}>
+            ⚽ Gol Time B
+          </Button>
+          <Button variant="danger" onClick={() => onCommand('encerrar')}>
+            🏁 Encerrar
+          </Button>
+        </>
       )}
-      {isPlayingAny && (
-        <Button variant="secondary" onClick={handleCommand('gol time a')}>
-          ⚽ Gol A
-        </Button>
-      )}
-      {isPlayingAny && (
-        <Button variant="secondary" onClick={handleCommand('gol time b')}>
-          ⚽ Gol B
-        </Button>
-      )}
-      {isPlaying && (
-        <Button variant="secondary" onClick={handleCommand('dúvida')}>
-          ⚠️ Dúvida
+
+      {phase === 'paused' && (
+        <Button variant="danger" onClick={() => onCommand('encerrar')}>
+          🏁 Encerrar
         </Button>
       )}
 
-      {/* Playing/Paused: End */}
-      {(isPlayingAny || isPaused) && (
-        <Button variant="danger" onClick={handleCommand('encerrar')}>
-          🛑 Encerrar
-        </Button>
-      )}
-
-      {/* Paused: Resume */}
-      {isPaused && (
-        <Button variant="neon" onClick={handleCommand('retomar')}>
-          ▶ Retomar
-        </Button>
-      )}
-
-      {/* Challenge: Resolve, Volta Seis */}
-      {isChallenge && (
-        <Button variant="secondary" onClick={handleCommand('resolver')}>
-          ✅ Resolver
-        </Button>
-      )}
-      {isChallenge && (
-        <Button variant="secondary" onClick={handleCommand('volta seis')}>
-          🔄 Volta Seis
-        </Button>
-      )}
-
-      {/* Finished: Reset */}
-      {isFinished && (
-        <Button variant="neon" onClick={onResetMatch}>
+      {phase === 'finished' && (
+        <Button variant="success" onClick={() => onCommand('novo jogo')}>
           🔄 Novo Jogo
         </Button>
       )}

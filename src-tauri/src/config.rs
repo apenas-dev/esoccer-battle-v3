@@ -1,5 +1,4 @@
-use crate::game::TimerMode;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,33 +17,17 @@ pub struct AppConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum WhisperModel {
-    Tiny,
-    Base,
-    Small,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum Language {
-    PtBr,
-    En,
-    Es,
-}
+pub enum WhisperModel { Tiny, Base, Small }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum Theme {
-    Dark,
-    Light,
-}
+pub enum Language { PtBr, En, Es }
 
-#[derive(Debug)]
-pub enum ConfigError {
-    Io(String),
-    Parse(String),
-    Validation(String),
-}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme { Dark, Light }
+
+pub use crate::game::TimerMode;
 
 impl Default for AppConfig {
     fn default() -> Self {
@@ -66,72 +49,41 @@ impl Default for AppConfig {
 impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
         let path = config_path();
-
         if !path.exists() {
-            let default = Self::default();
-            default.save()?;
-            return Ok(default);
+            return Ok(Self::default());
         }
-
-        let content = std::fs::read_to_string(&path).map_err(|e| ConfigError::Io(e.to_string()))?;
-        serde_json::from_str(&content).map_err(|e| ConfigError::Parse(e.to_string()))
+        let contents = std::fs::read_to_string(&path).map_err(|e| ConfigError::Io(e.to_string()))?;
+        serde_json::from_str(&contents).map_err(|e| ConfigError::Parse(e.to_string()))
     }
 
     pub fn save(&self) -> Result<(), ConfigError> {
-        self.validate()?;
-
         let path = config_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| ConfigError::Io(e.to_string()))?;
         }
-
-        let content = serde_json::to_string_pretty(self).map_err(|e| ConfigError::Parse(e.to_string()))?;
-        std::fs::write(&path, content).map_err(|e| ConfigError::Io(e.to_string()))
-    }
-
-    fn validate(&self) -> Result<(), ConfigError> {
-        if self.team_a_name.trim().is_empty() {
-            return Err(ConfigError::Validation(
-                "team_a_name must not be empty".into(),
-            ));
-        }
-        if self.team_b_name.trim().is_empty() {
-            return Err(ConfigError::Validation(
-                "team_b_name must not be empty".into(),
-            ));
-        }
-        if !(0.0..=1.0).contains(&self.voice_threshold) {
-            return Err(ConfigError::Validation(
-                "voice_threshold must be between 0.0 and 1.0".into(),
-            ));
-        }
-        if !(0.0..=1.0).contains(&self.volume) {
-            return Err(ConfigError::Validation(
-                "volume must be between 0.0 and 1.0".into(),
-            ));
-        }
-        if !(60..=7200).contains(&self.match_duration_secs) {
-            return Err(ConfigError::Validation(
-                "match_duration_secs must be between 60 and 7200".into(),
-            ));
-        }
-        Ok(())
+        let contents = serde_json::to_string_pretty(self).map_err(|e| ConfigError::Parse(e.to_string()))?;
+        std::fs::write(&path, contents).map_err(|e| ConfigError::Io(e.to_string()))
     }
 }
 
 pub fn config_path() -> PathBuf {
-    let base = directories::ProjectDirs::from("com", "esoccer", "battle")
-        .map(|d| d.data_dir().to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
-    base.join("config.json")
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("esoccer-battle")
+        .join("config.json")
+}
+
+#[derive(Debug)]
+pub enum ConfigError {
+    Io(String),
+    Parse(String),
 }
 
 impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConfigError::Io(s) => write!(f, "IO error: {}", s),
-            ConfigError::Parse(s) => write!(f, "Parse error: {}", s),
-            ConfigError::Validation(s) => write!(f, "Validation error: {}", s),
+            ConfigError::Io(e) => write!(f, "IO error: {}", e),
+            ConfigError::Parse(e) => write!(f, "Parse error: {}", e),
         }
     }
 }

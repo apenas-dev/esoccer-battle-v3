@@ -1,35 +1,20 @@
 import type { ISTTProvider } from './ISTTProvider';
-import { WebSpeechProvider } from './WebSpeechProvider';
 import { WhisperProvider } from './WhisperProvider';
-import type { AppConfig } from '../../types';
+import { WebSpeechProvider } from './WebSpeechProvider';
 
 export type STTBackend = 'auto' | 'web-speech' | 'whisper';
 
-export async function createSTTProvider(
-  backend: STTBackend,
-  config: AppConfig,
-): Promise<ISTTProvider> {
-  const langMap: Record<string, string> = {
-    pt_br: 'pt-BR',
-    en: 'en-US',
-    es: 'es-ES',
-  };
-
-  const lang = langMap[config.language] || 'pt-BR';
-
-  if (backend === 'whisper') {
-    return new WhisperProvider(config.whisper_model, lang);
-  }
-
+export async function createSTTProvider(backend: STTBackend, language: string = 'pt-BR'): Promise<ISTTProvider> {
+  if (backend === 'whisper') return new WhisperProvider();
+  
   if (backend === 'web-speech') {
-    return new WebSpeechProvider(lang);
+    const webSpeech = new WebSpeechProvider(language);
+    if (await webSpeech.isAvailable()) return webSpeech;
+    throw new Error('Web Speech API not available in this browser');
   }
 
-  // 'auto' — try WebSpeech first, fallback to Whisper
-  const webSpeech = new WebSpeechProvider(lang);
-  if (await webSpeech.isAvailable()) {
-    return webSpeech;
-  }
-
-  return new WhisperProvider(config.whisper_model, lang);
+  // Auto: try web-speech first, fall back to whisper
+  const webSpeech = new WebSpeechProvider(language);
+  if (await webSpeech.isAvailable()) return webSpeech;
+  return new WhisperProvider();
 }
