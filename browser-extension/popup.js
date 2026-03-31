@@ -1,6 +1,6 @@
 /**
  * S.O.G. Battle — Popup Logic
- * Handles STT (Speech-to-Text), command matching, and UI.
+ * Handles STT (Speech-to-Text), command matching, audio playback, and UI.
  */
 
 (function () {
@@ -16,6 +16,7 @@
   // --- State ---
   let isActive = false;
   let recognition = null;
+  let currentAudio = null;
 
   // --- Init command list UI ---
   COMMANDS.forEach((cmd) => {
@@ -87,17 +88,24 @@
     }
   }
 
-  // --- Audio playback via background ---
+  // --- Audio playback (direct in popup — MV3 service workers can't use Audio()) ---
   function playAudio(audioFile) {
-    chrome.runtime.sendMessage(
-      { type: "PLAY_AUDIO", audioFile: audioFile },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error("[SOG] Send error:", chrome.runtime.lastError.message);
-          addLog("Erro ao reproduzir áudio", "error");
-        }
-      }
-    );
+    // Cancel previous audio if playing
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      currentAudio = null;
+    }
+
+    const url = chrome.runtime.getURL("audio/" + audioFile);
+    currentAudio = new Audio(url);
+    currentAudio.play().catch((err) => {
+      addLog("Erro ao reproduzir: " + err.message, "error");
+    });
+
+    currentAudio.addEventListener("ended", () => {
+      currentAudio = null;
+    });
   }
 
   // --- Speech Recognition setup ---
