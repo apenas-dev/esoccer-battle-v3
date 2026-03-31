@@ -22,7 +22,7 @@ impl VoiceCoordinator {
         Self { is_listening: false, capture: None, event_tx: Some(event_tx) }
     }
 
-    pub async fn start_listening(&mut self, _app: &AppHandle, config: Option<CaptureConfig>) -> Result<(), VoiceError> {
+    pub fn start_listening(&mut self, _app: &AppHandle, config: Option<CaptureConfig>) -> Result<(), VoiceError> {
         let capture_config = config.unwrap_or_default();
         let stream = CaptureStream::start(capture_config).map_err(|e| VoiceError::Capture(e.to_string()))?;
         self.capture = Some(stream);
@@ -33,7 +33,7 @@ impl VoiceCoordinator {
         Ok(())
     }
 
-    pub async fn stop_listening(&mut self, _app: &AppHandle) -> Result<crate::capture::AudioBuffer, VoiceError> {
+    pub fn stop_listening(&mut self, _app: &AppHandle) -> Result<crate::capture::AudioBuffer, VoiceError> {
         if !self.is_listening {
             return Err(VoiceError::NotListening);
         }
@@ -41,7 +41,6 @@ impl VoiceCoordinator {
         let stream = self.capture.take().ok_or(VoiceError::Capture("No capture stream".to_string()))?;
         let buffer = stream.stop().map_err(|e| VoiceError::Capture(e.to_string()))?;
         // Transcription will be handled by frontend (OpenAI Whisper API or WebSpeech)
-        // For now, just return the audio buffer
         Ok(buffer)
     }
 

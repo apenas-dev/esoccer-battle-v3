@@ -55,17 +55,17 @@ async fn start_listening(
     app: AppHandle,
 ) -> Result<(), String> {
     let config = {
-        let cfg = state.config.lock().map_err(|e| e.to_string())?;
+        let cfg = state.config.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?;
         Some(capture::CaptureConfig {
             device_name: cfg.mic_device.clone(),
             sample_rate: 16000,
             channels: 1,
         })
     };
-    let mut coord = state.voice_coordinator.lock().map_err(|e| e.to_string())?;
-    let result = coord.start_listening(&app, config);
-    drop(coord);
-    result.await.map_err(|e| format!("{:?}", e))
+    // VoiceCoordinator methods are sync (no actual await needed for cpal stream start)
+    state.voice_coordinator.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?
+        .start_listening(&app, config)
+        .map_err(|e| format!("{:?}", e))
 }
 
 #[tauri::command]
@@ -73,8 +73,9 @@ async fn stop_listening(
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<serde_json::Value, String> {
-    let mut coord = state.voice_coordinator.lock().map_err(|e| e.to_string())?;
-    let buffer = coord.stop_listening(&app).await.map_err(|e| format!("{:?}", e))?;
+    let buffer = state.voice_coordinator.lock().map_err(|e: std::sync::PoisonError<_>| e.to_string())?
+        .stop_listening(&app)
+        .map_err(|e| format!("{:?}", e))?;
     // Return buffer info; transcription happens on frontend
     Ok(serde_json::json!({
         "sample_count": buffer.samples.len(),

@@ -1,5 +1,5 @@
 use tauri::{AppHandle, Emitter};
-use crate::match_service::{Action, SoundName, MatchSnapshot};
+use crate::match_service::{Action, SoundName};
 use crate::audio;
 use crate::history;
 
